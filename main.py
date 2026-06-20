@@ -170,7 +170,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "💬 спросить ии":
-        await update.message.reply_text("Напиши свой вопрос 👇")
+        user_state[user_id] = "chat"
+        await update.message.reply_text("Задай вопрос 👇")
         return
 
     if user_id not in user_histories:

@@ -1,10 +1,14 @@
 import os
 import json
+import re
 import itertools
+import asyncio
 from datetime import datetime, timezone, time as dtime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
+import requests
+from bs4 import BeautifulSoup
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -24,8 +28,6 @@ SYSTEM_PROMPT = """
 - Списки делай через цифры или emoji-буллеты (•, ➡️, ✅, 📌)
 - Разделяй блоки пустой строкой для читаемости
 """
-
-import re
 
 def fmt_ai(text):
     text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
@@ -49,6 +51,82 @@ async def safe_edit(message, text, **kwargs):
         await message.edit_text(cleaned, parse_mode='Markdown', **kwargs)
     except Exception:
         await message.edit_text(cleaned, **kwargs)
+
+PARSE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'ru-RU,ru;q=0.9',
+}
+
+def _budget_keyword(amount):
+    if amount <= 100000:
+        return "уборка помещений благоустройство"
+    elif amount <= 200000:
+        return "техническое обслуживание поставка"
+    elif amount <= 300000:
+        return "благоустройство ремонт"
+    elif amount <= 400000:
+        return "строительные работы монтаж"
+    else:
+        return "строительство ремонт поставка"
+
+def _parse_amount(text):
+    digits = re.sub(r'[^\d]', '', text)
+    return int(digits) if digits else 0
+
+def _fetch_real_tenders(query, max_budget):
+    url = f"https://zakupki360.ru/search?q={requests.utils.quote(query)}&per_page=30"
+    r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
+    soup = BeautifulSoup(r.text, 'html.parser')
+
+    tender_links = [
+        (a.get('href', ''), a.get_text().strip())
+        for a in soup.find_all('a', href=True)
+        if '/tender/' in a.get('href', '') and len(a.get_text().strip()) > 10
+    ]
+
+    lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 3]
+
+    tenders = []
+    for href, title in tender_links:
+        budget_str = None
+        region = None
+        date = None
+        for i, line in enumerate(lines):
+            if title[:25] in line:
+                ctx = lines[max(0, i - 8):i + 8]
+                for c in ctx:
+                    if not budget_str and re.search(r'[\d\s]+₽', c):
+                        budget_str = c.strip()
+                    if not date and re.match(r'\d{2}\.\d{2}\.\d{4}', c):
+                        date = c.strip()
+                    if not region and ('область' in c.lower() or 'край' in c.lower()
+                                       or 'республика' in c.lower() or 'округ' in c.lower()):
+                        region = c.strip()
+                break
+
+        amount = _parse_amount(budget_str) if budget_str else 0
+        if max_budget and amount > max_budget:
+            continue
+
+        tenders.append({
+            'title': title,
+            'url': 'https://zakupki360.ru' + href,
+            'amount': amount,
+            'budget_str': budget_str or '—',
+            'region': region or '—',
+            'date': date or '—',
+            'source': 'real',
+        })
+        if len(tenders) >= 6:
+            break
+
+    return tenders
+
+async def search_tenders_real(amount, profile):
+    query = _budget_keyword(amount)
+    loop = asyncio.get_event_loop()
+    tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount)
+    return tenders
 
 def build_system_prompt(user_id):
     profile = user_profile.get(user_id)
@@ -367,19 +445,30 @@ def tender_results_inline_kb(tenders, show_back=True):
     return InlineKeyboardMarkup(buttons)
 
 def format_tender_card(t, idx, total):
-    amt = f"{int(t['amount']):,}".replace(",", " ")
-    return (
-        f"📋 ТЕНДЕР {idx}/{total}\n\n"
-        f"🏷 {t['title']}\n\n"
-        f"🔢 Номер: {t.get('number', '—')}\n"
-        f"🏛 Заказчик: {t.get('customer', '—')}\n"
-        f"📍 Регион: {t.get('region', '—')}\n"
-        f"💰 НМЦ: {amt}₽\n"
-        f"⏰ Дедлайн: {t.get('deadline', '—')}\n\n"
-        f"📝 Описание:\n{t.get('description', '—')}\n\n"
-        f"✅ Требования:\n{t.get('requirements', '—')}\n\n"
-        f"🔍 Найти на zakupki.gov.ru → поиск по номеру"
-    )
+    if t.get('source') == 'real':
+        amt = t.get('budget_str', '—')
+        return (
+            f"📋 ТЕНДЕР {idx}/{total}\n\n"
+            f"🏷 {t['title']}\n\n"
+            f"📍 Регион: {t.get('region', '—')}\n"
+            f"💰 НМЦ: {amt}\n"
+            f"📅 Опубликован: {t.get('date', '—')}\n\n"
+            f"🔗 Подробности и документация:\n{t.get('url', '—')}"
+        )
+    else:
+        amt = f"{int(t['amount']):,}".replace(",", " ")
+        return (
+            f"📋 ТЕНДЕР {idx}/{total}\n\n"
+            f"🏷 {t['title']}\n\n"
+            f"🔢 Номер: {t.get('number', '—')}\n"
+            f"🏛 Заказчик: {t.get('customer', '—')}\n"
+            f"📍 Регион: {t.get('region', '—')}\n"
+            f"💰 НМЦ: {amt}₽\n"
+            f"⏰ Дедлайн: {t.get('deadline', '—')}\n\n"
+            f"📝 Описание:\n{t.get('description', '—')}\n\n"
+            f"✅ Требования:\n{t.get('requirements', '—')}\n\n"
+            f"🔍 Найти на zakupki.gov.ru → поиск по номеру"
+        )
 
 def profile_inline_kb(user_id):
     has_company = bool(user_profile.get(user_id, {}).get("company_name"))
@@ -671,12 +760,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         amount = int(data.split("_")[-1])
         profile = user_profile.get(user_id, {})
         fmt = f"{amount:,}".replace(",", " ")
-        searching_msg = await query.message.reply_text(f"🔍 Ищу тендеры до {fmt}₽...")
+        searching_msg = await query.message.reply_text(f"🔍 Ищу реальные тендеры до {fmt}₽...")
         try:
-            tenders = await search_tenders_by_ai(amount, profile)
+            tenders = await search_tenders_real(amount, profile)
+            source_label = "🌐 реальных"
+            if not tenders:
+                await searching_msg.edit_text("⏳ Парсинг не дал результатов, генерирую через ИИ...")
+                tenders = await search_tenders_by_ai(amount, profile)
+                source_label = "🤖 (ИИ-примеры)"
             user_tender_results[user_id] = tenders
             await searching_msg.edit_text(
-                f"✅ Найдено {len(tenders)} тендера до {fmt}₽\n\nВыбери, чтобы посмотреть подробности:",
+                f"✅ Найдено {len(tenders)} {source_label} тендера до {fmt}₽\n\nВыбери, чтобы посмотреть подробности:",
                 reply_markup=tender_results_inline_kb(tenders)
             )
         except Exception:

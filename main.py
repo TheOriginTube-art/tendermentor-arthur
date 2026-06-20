@@ -2,8 +2,8 @@ import os
 import json
 import itertools
 from datetime import datetime, timezone, time as dtime
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -215,6 +215,14 @@ def get_tender_advice(profile):
 Найти тендер до {limit}
 """
 
+def profile_inline_kb(user_id):
+    has_company = bool(user_profile.get(user_id, {}).get("company_name"))
+    company_label = "✏️ Редактировать компанию" if has_company else "➕ Добавить компанию"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(company_label, callback_data="profile_edit_company")],
+        [InlineKeyboardButton("⬅️ Вернуться в меню", callback_data="profile_back")],
+    ])
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat_id
     await update.message.reply_text(
@@ -351,39 +359,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "📊 мой профиль":
-        has_company = bool(user_profile.get(user_id, {}).get("company_name"))
-        company_btn = "✏️ Редактировать компанию" if has_company else "➕ Добавить компанию"
-        profile_kb = ReplyKeyboardMarkup(
-            [[company_btn], ["⬅️ Вернуться в меню"]],
-            resize_keyboard=True
-        )
         with open("profile_banner.png", "rb") as photo:
             await update.message.reply_photo(photo)
-        await update.message.reply_text(format_profile(user_id), reply_markup=profile_kb)
-        return
-
-    if text == "⬅️ вернуться в меню":
-        await update.message.reply_text("Главное меню 👇", reply_markup=main_menu(user_id))
-        return
-
-    if text in ("➕ добавить компанию", "✏️ редактировать компанию"):
-        user_state[user_id] = "add_company"
-        await update.message.reply_text(
-            "🏢 Введи название своей компании (например: ООО «Ромашка» или ИП Иванов И.И.):"
-        )
+        await update.message.reply_text(format_profile(user_id), reply_markup=profile_inline_kb(user_id))
         return
 
     if state == "add_company":
         user_profile.setdefault(user_id, {})["company_name"] = update.message.text
         user_state[user_id] = None
         save_profiles()
-        profile_kb = ReplyKeyboardMarkup(
-            [["✏️ Редактировать компанию"], ["⬅️ Вернуться в меню"]],
-            resize_keyboard=True
-        )
+        with open("profile_banner.png", "rb") as photo:
+            await update.message.reply_photo(photo)
         await update.message.reply_text(
             f"✅ Компания сохранена: {update.message.text}\n\n" + format_profile(user_id),
-            reply_markup=profile_kb
+            reply_markup=profile_inline_kb(user_id)
         )
         return
 
@@ -484,10 +473,26 @@ async def send_daily_tip(context):
         except Exception:
             pass
 
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.message.chat_id
+    data = query.data
+
+    if data == "profile_back":
+        await query.message.reply_text("Главное меню 👇", reply_markup=main_menu(user_id))
+
+    elif data == "profile_edit_company":
+        user_state[user_id] = "add_company"
+        await query.message.reply_text(
+            "🏢 Введи название своей компании (например: ООО «Ромашка» или ИП Иванов И.И.):"
+        )
+
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reset", reset))
+app.add_handler(CallbackQueryHandler(callback_handler))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 app.job_queue.run_daily(send_daily_tip, time=dtime(hour=6, minute=0, tzinfo=timezone.utc))

@@ -17,23 +17,37 @@ SYSTEM_PROMPT = """
 Не перегружай.
 """
 
+user_histories = {}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_histories[user_id] = []
     await update.message.reply_text(
         "Привет! Я Tender AI.\n\nПомогу тебе начать тендерный бизнес с нуля.\n\nНапиши: начать"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     user_text = update.message.text
+
+    if user_id not in user_histories:
+        user_histories[user_id] = []
+
+    user_histories[user_id].append({"role": "user", "content": user_text})
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ]
+        messages=messages
     )
 
     answer = response.choices[0].message.content
+    user_histories[user_id].append({"role": "assistant", "content": answer})
+
+    if len(user_histories[user_id]) > 40:
+        user_histories[user_id] = user_histories[user_id][-40:]
+
     await update.message.reply_text(answer)
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()

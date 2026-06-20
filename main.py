@@ -499,11 +499,12 @@ def format_profile(user_id):
 
     status = get_status(count)
 
+    city_line = f"\n🏙 Город: {profile.get('city', '-')}\n" if profile.get('city') else "\n🏙 Город: не указан\n"
     return f"""
 📊 ТВОЙ ПРОФИЛЬ
 
 🌍 Страна: {profile.get('country', '-')}
-
+{city_line}
 💰 Бюджет: {profile.get('budget', '-')}
 
 🏢 Компания: {profile.get('company_name') or profile.get('company', '-')}
@@ -711,8 +712,11 @@ def format_tender_card(t, idx, total):
 def profile_inline_kb(user_id):
     has_company = bool(user_profile.get(user_id, {}).get("company_name"))
     company_label = "✏️ Редактировать компанию" if has_company else "➕ Добавить компанию"
+    has_city = bool(user_profile.get(user_id, {}).get("city"))
+    city_label = "🏙 Поменять город" if has_city else "🏙 Указать город"
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(company_label, callback_data="profile_edit_company")],
+        [InlineKeyboardButton(city_label, callback_data="profile_change_city")],
         [InlineKeyboardButton("⬅️ Вернуться в меню", callback_data="profile_back")],
     ])
 
@@ -757,9 +761,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
             return
         user_tender_city[user_id] = city
+        user_profile.setdefault(user_id, {})["city"] = city
+        save_profiles()
         user_state[user_id] = None
         await update.message.reply_text(
-            f"📍 Город: *{city}*\n\n💰 Теперь выбери максимальную сумму тендера:",
+            f"📍 Город сохранён: *{city}*\n\n💰 Выбери максимальную сумму тендера:",
             parse_mode="Markdown",
             reply_markup=tender_search_inline_kb(user_id)
         )
@@ -895,12 +901,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎯 найти тендер":
-        user_state[user_id] = "tender_city"
-        await update.message.reply_text(
-            "🏙 В каком городе ищем тендеры?\n\nНапиши название города (например: _Москва_, _Краснодар_, _Казань_):",
-            parse_mode="Markdown",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        saved_city = user_profile.get(user_id, {}).get("city")
+        if saved_city:
+            user_tender_city[user_id] = saved_city
+            await update.message.reply_text(
+                f"📍 Город: *{saved_city}*\n\n💰 Выбери максимальную сумму тендера:",
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            await update.message.reply_text("Выбери бюджет 👇", reply_markup=tender_search_inline_kb(user_id))
+        else:
+            user_state[user_id] = "tender_city"
+            await update.message.reply_text(
+                "🏙 В каком городе ищем тендеры?\n\nНапиши название города (например: _Москва_, _Краснодар_, _Казань_):",
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove()
+            )
         return
 
     if state == "custom_amount":
@@ -1058,6 +1074,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "🏢 Введи название своей компании (например: ООО «Ромашка» или ИП Иванов И.И.):"
         )
+
+    elif data == "profile_change_city":
+        user_state[user_id] = "tender_city"
+        current_city = user_profile.get(user_id, {}).get("city")
+        if current_city:
+            await query.message.reply_text(
+                f"🏙 Текущий город: *{current_city}*\n\nНапиши новый город:",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.message.reply_text(
+                "🏙 Напиши название своего города (например: _Москва_, _Краснодар_, _Казань_):",
+                parse_mode="Markdown"
+            )
 
     elif data.startswith("tender_budget_"):
         amount = int(data.split("_")[-1])

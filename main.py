@@ -277,6 +277,36 @@ def _fetch_real_tenders(query, max_budget, city=None):
     tenders = _parse_tender_cards(soup, max_budget)
     return tenders[:6]
 
+async def is_valid_russian_city(city: str) -> bool:
+    """Проверяет через GPT, является ли строка реальным городом России."""
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Ты — валидатор географических названий. "
+                        "Отвечай ТОЛЬКО одним словом: 'да' или 'нет'."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Является ли \"{city}\" реальным городом, посёлком городского типа "
+                        "или населённым пунктом России? Ответь да или нет."
+                    ),
+                },
+            ],
+            max_tokens=5,
+            temperature=0,
+        )
+        answer = resp.choices[0].message.content.strip().lower()
+        return answer.startswith("да")
+    except Exception:
+        return True  # при ошибке API не блокируем пользователя
+
+
 async def search_tenders_real(amount, profile, query=None, city=None):
     if query is None:
         query = _budget_keyword(amount)
@@ -1025,6 +1055,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(city) < 2:
             await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
             return
+        checking_msg = await update.message.reply_text("🔍 Проверяю город...")
+        valid = await is_valid_russian_city(city)
+        await checking_msg.delete()
+        if not valid:
+            await update.message.reply_text(
+                f"❌ Город *{city}* не найден.\n\n"
+                "Пожалуйста, введи реальный российский город, например: *Москва*, *Краснодар*, *Новосибирск*.",
+                parse_mode="Markdown"
+            )
+            return
         user_profile.setdefault(user_id, {})["city"] = city
         save_profiles()
         user_state[user_id] = None
@@ -1039,6 +1079,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         city = update.message.text.strip()
         if len(city) < 2:
             await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
+            return
+        checking_msg = await update.message.reply_text("🔍 Проверяю город...")
+        valid = await is_valid_russian_city(city)
+        await checking_msg.delete()
+        if not valid:
+            await update.message.reply_text(
+                f"❌ Город *{city}* не найден.\n\n"
+                "Пожалуйста, введи реальный российский город, например: *Москва*, *Краснодар*, *Новосибирск*.",
+                parse_mode="Markdown"
+            )
             return
         user_tender_city[user_id] = city
         user_profile.setdefault(user_id, {})["city"] = city

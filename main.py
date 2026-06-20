@@ -27,32 +27,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     user_text = update.message.text
-
-    if user_id not in user_histories:
-        user_histories[user_id] = []
-
-    user_histories[user_id].append({"role": "user", "content": user_text})
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=messages
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ]
     )
 
-    answer = response.choices[0].message.content
-    user_histories[user_id].append({"role": "assistant", "content": answer})
-
-    if len(user_histories[user_id]) > 40:
-        user_histories[user_id] = user_histories[user_id][-40:]
-
-    await update.message.reply_text(answer)
-
-app = Application.builder().token(TELEGRAM_TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-app.run_polling()
+    await update.message.reply_text(response.choices[0].message.content)

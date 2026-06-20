@@ -1,7 +1,7 @@
 import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIError
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -37,18 +37,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages
-    )
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages
+        )
+        answer = response.choices[0].message.content
+        user_histories[user_id].append({"role": "assistant", "content": answer})
 
-    answer = response.choices[0].message.content
-    user_histories[user_id].append({"role": "assistant", "content": answer})
+        if len(user_histories[user_id]) > 40:
+            user_histories[user_id] = user_histories[user_id][-40:]
 
-    if len(user_histories[user_id]) > 40:
-        user_histories[user_id] = user_histories[user_id][-40:]
+        await update.message.reply_text(answer)
 
-    await update.message.reply_text(answer)
+    except RateLimitError:
+        user_histories[user_id].pop()
+        await update.message.reply_text(
+            "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com и попробуйте снова."
+        )
+    except APIError as e:
+        user_histories[user_id].pop()
+        await update.message.reply_text(
+            f"⚠️ Ошибка OpenAI: {str(e)}\n\nПопробуйте ещё раз."
+        )
+    except Exception:
+        user_histories[user_id].pop()
+        await update.message.reply_text(
+            "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже."
+        )
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 

@@ -580,7 +580,7 @@ def tender_search_inline_kb(user_id):
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="tender_back")])
+    buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
     return InlineKeyboardMarkup(buttons)
 
 def get_tender_advice_by_amount(amount, profile):
@@ -876,8 +876,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎯 найти тендер":
+        await update.message.reply_text("💰 Выбери максимальную сумму тендера:", reply_markup=ReplyKeyboardRemove())
         await update.message.reply_text(
-            "💰 Выбери максимальную сумму тендера:",
+            "Выбери бюджет 👇",
             reply_markup=tender_search_inline_kb(user_id)
         )
         return

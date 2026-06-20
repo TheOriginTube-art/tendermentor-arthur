@@ -147,9 +147,11 @@ def _fetch_real_tenders(query, max_budget):
 
     return tenders
 
-async def search_tenders_real(amount, profile, query=None):
+async def search_tenders_real(amount, profile, query=None, city=None):
     if query is None:
         query = _budget_keyword(amount)
+    if city:
+        query = f"{city} {query}"
     loop = asyncio.get_event_loop()
     tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount)
     return tenders
@@ -460,6 +462,7 @@ user_profile = load_profiles()
 user_saved_tenders = load_saved_tenders()
 user_tender_results = {}
 user_tender_amount = {}
+user_tender_city = {}
 
 def get_status(count):
     if count >= 20:
@@ -878,9 +881,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎯 найти тендер":
-        await update.message.reply_text("💰 Выбери максимальную сумму тендера:", reply_markup=ReplyKeyboardRemove())
+        user_state[user_id] = "tender_city"
         await update.message.reply_text(
-            "Выбери бюджет 👇",
+            "🏙 В каком городе ищем тендеры?\n\nНапиши название города (например: _Москва_, _Краснодар_, _Казань_):",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    if state == "tender_city":
+        city = update.message.text.strip()
+        if len(city) < 2:
+            await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
+            return
+        user_tender_city[user_id] = city
+        user_state[user_id] = None
+        await update.message.reply_text(
+            f"📍 Город: *{city}*\n\n💰 Теперь выбери максимальную сумму тендера:",
+            parse_mode="Markdown",
             reply_markup=tender_search_inline_kb(user_id)
         )
         return
@@ -1057,11 +1075,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = user_profile.get(user_id, {})
         fmt = f"{amount:,}".replace(",", " ")
         topic_label, topic_query = TENDER_TOPICS.get(topic_key, ("", _budget_keyword(amount)))
+        city = user_tender_city.get(user_id)
+        city_label = f" | 📍 {city}" if city else ""
         searching_msg = await query.message.reply_text(
-            f"🔍 Ищу тендеры «{topic_label}» до {fmt}₽..."
+            f"🔍 Ищу тендеры «{topic_label}» до {fmt}₽{city_label}..."
         )
         try:
-            tenders = await search_tenders_real(amount, profile, query=topic_query)
+            tenders = await search_tenders_real(amount, profile, query=topic_query, city=city)
             source_label = "🌐 реальных"
             if not tenders:
                 await searching_msg.edit_text("⏳ Парсинг не дал результатов, генерирую через ИИ...")
@@ -1070,7 +1090,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_tender_results[user_id] = tenders
             await searching_msg.edit_text(
                 f"✅ Найдено {len(tenders)} {source_label} тендера\n"
-                f"Тема: {topic_label} | до {fmt}₽\n\n"
+                f"Тема: {topic_label} | до {fmt}₽{city_label}\n\n"
                 f"Выбери, чтобы посмотреть подробности:",
                 reply_markup=tender_results_inline_kb(tenders)
             )

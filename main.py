@@ -33,18 +33,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories[user_id] = []
     await update.message.reply_text(
-        "Привет! Я Tender AI.\n\nПомогу тебе начать тендерный бизнес с нуля.\n\nНапиши: начать"
+        "Привет! Я Tender AI.\n\nПомогу тебе начать тендерный бизнес с нуля.\n\nВыбери действие:",
+        reply_markup=main_menu()
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_text = update.message.text
 
+    if user_text == "🚀 Начать":
+        user_histories[user_id] = []
+        await update.message.reply_text(
+            "Отлично! Начнём с нуля.\n\nРасскажи немного о себе: есть ли у тебя уже ИП или ООО?",
+            reply_markup=main_menu()
+        )
+        return
+
+    if user_text == "📊 Мой профиль":
+        await update.message.reply_text(
+            "Раздел профиля в разработке. Скоро здесь появится информация о твоих тендерах и прогрессе.",
+            reply_markup=main_menu()
+        )
+        return
+
+    if user_text == "🎯 Найти тендер":
+        await update.message.reply_text(
+            "Опиши, в какой сфере хочешь найти тендер — и я помогу разобраться с поиском.",
+            reply_markup=main_menu()
+        )
+        return
+
+    if user_text == "📄 Анализ тендера":
+        await update.message.reply_text(
+            "Вставь ссылку на тендер или скопируй его описание — разберём вместе.",
+            reply_markup=main_menu()
+        )
+        return
+
+    if user_text == "💬 Спросить ИИ":
+        await update.message.reply_text(
+            "Задай любой вопрос по тендерному бизнесу — отвечу.",
+            reply_markup=main_menu()
+        )
+        return
+
     if user_id not in user_histories:
         user_histories[user_id] = []
 
     user_histories[user_id].append({"role": "user", "content": user_text})
-
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
 
     try:
@@ -58,22 +94,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(user_histories[user_id]) > 40:
             user_histories[user_id] = user_histories[user_id][-40:]
 
-        await update.message.reply_text(answer)
+        await update.message.reply_text(answer, reply_markup=main_menu())
 
     except RateLimitError:
         user_histories[user_id].pop()
         await update.message.reply_text(
-            "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com и попробуйте снова."
+            "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com и попробуйте снова.",
+            reply_markup=main_menu()
         )
     except APIError as e:
         user_histories[user_id].pop()
         await update.message.reply_text(
-            f"⚠️ Ошибка OpenAI: {str(e)}\n\nПопробуйте ещё раз."
+            f"⚠️ Ошибка OpenAI: {str(e)}\n\nПопробуйте ещё раз.",
+            reply_markup=main_menu()
         )
     except Exception:
         user_histories[user_id].pop()
         await update.message.reply_text(
-            "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже."
+            "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
+            reply_markup=main_menu()
         )
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()

@@ -86,7 +86,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🚀 начать":
         user_state[user_id] = "q1"
+        user_profile[user_id] = {}
         await update.message.reply_text("В какой стране ты планируешь работать?")
+        return
+
+    state = user_state.get(user_id)
+
+    if state == "q1":
+        user_profile.setdefault(user_id, {})["country"] = update.message.text
+        user_state[user_id] = "q2"
+        await update.message.reply_text("💰 Какой у тебя стартовый бюджет? (например: 500€, 1000€)")
+        return
+
+    if state == "q2":
+        user_profile.setdefault(user_id, {})["budget"] = update.message.text
+        user_state[user_id] = "q3"
+        await update.message.reply_text("🏢 Есть ли у тебя компания? (ИП, ООО или ещё нет)")
+        return
+
+    if state == "q3":
+        user_profile.setdefault(user_id, {})["company"] = update.message.text
+        user_state[user_id] = "q4"
+        await update.message.reply_text("🧠 Есть ли у тебя опыт в тендерах? (да / нет / немного)")
+        return
+
+    if state == "q4":
+        user_profile.setdefault(user_id, {})["experience"] = update.message.text
+        user_state[user_id] = None
+        await update.message.reply_text(
+            "✅ Профиль заполнен!\n\n" + format_profile(user_id),
+            reply_markup=main_menu()
+        )
         return
 
     if text == "📊 мой профиль":

@@ -158,7 +158,7 @@ def format_profile(user_id):
 
 💰 Бюджет: {profile.get('budget', '-')}
 
-🏢 Компания: {profile.get('company', '-')}
+🏢 Компания: {profile.get('company', '-')}{"  •  " + profile['company_name'] if profile.get('company_name') else ""}
 
 🧠 Опыт: {profile.get('experience', '-')}
 
@@ -351,7 +351,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "📊 мой профиль":
-        await update.message.reply_text(format_profile(user_id), reply_markup=main_menu(user_id))
+        profile_kb = ReplyKeyboardMarkup(
+            [["➕ Добавить компанию"], ["⬅️ Вернуться в меню"]],
+            resize_keyboard=True
+        )
+        await update.message.reply_text(format_profile(user_id), reply_markup=profile_kb)
+        return
+
+    if text == "⬅️ вернуться в меню":
+        await update.message.reply_text("Главное меню 👇", reply_markup=main_menu(user_id))
+        return
+
+    if text == "➕ добавить компанию":
+        user_state[user_id] = "add_company"
+        await update.message.reply_text(
+            "🏢 Введи название своей компании (например: ООО «Ромашка» или ИП Иванов И.И.):"
+        )
+        return
+
+    if state == "add_company":
+        user_profile.setdefault(user_id, {})["company_name"] = update.message.text
+        user_state[user_id] = None
+        save_profiles()
+        profile_kb = ReplyKeyboardMarkup(
+            [["➕ Добавить компанию"], ["⬅️ Вернуться в меню"]],
+            resize_keyboard=True
+        )
+        await update.message.reply_text(
+            f"✅ Компания сохранена: {update.message.text}\n\n" + format_profile(user_id),
+            reply_markup=profile_kb
+        )
         return
 
     if text == "🎯 найти тендер":

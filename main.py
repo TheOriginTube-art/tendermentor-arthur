@@ -90,24 +90,49 @@ def format_profile(user_id):
 """
 
 def get_tender_advice(profile):
-    budget = profile.get("budget", "неизвестно")
+    budget = profile.get("budget", "")
+    company = profile.get("company", "")
+    experience = profile.get("experience", "")
+
+    if "500 000" in budget or "500000" in budget:
+        budget_tier = "high"
+    elif "300 000" in budget or "300000" in budget:
+        budget_tier = "medium"
+    else:
+        budget_tier = "low"
+
+    has_company = "ип" in company.lower() or "ооо" in company.lower()
+    has_experience = "есть опыт" in experience.lower() or "✅" in experience
+
+    if budget_tier == "high" and has_company:
+        directions = ["🏗 Строительные работы", "🚛 Поставка оборудования", "🧹 Клининг крупных объектов"]
+        limit = "1 000 000–5 000 000₽"
+    elif budget_tier == "medium" and has_company:
+        directions = ["🔧 Техническое обслуживание", "📦 Поставка товаров", "🌿 Благоустройство"]
+        limit = "300 000–1 000 000₽"
+    elif not has_company:
+        directions = ["🧹 Уборка помещений", "🌱 Мелкое благоустройство", "📋 Консультационные услуги"]
+        limit = "50 000–300 000₽"
+    else:
+        directions = ["🧹 Уборка помещений", "🔨 Мелкий ремонт", "🌿 Благоустройство"]
+        limit = "100 000–500 000₽"
+
+    why = "без опыта" if not has_experience else "соответствует твоему опыту"
 
     return f"""
 🎯 РЕКОМЕНДОВАННЫЕ НАПРАВЛЕНИЯ
 
 На основе твоего профиля:
 
-👉 Уборка помещений
-👉 Мелкий ремонт
-👉 Благоустройство
+{"  ".join(f"{chr(10)}👉 {d}" for d in directions)}
 
 💡 Почему:
 - низкий порог входа
-- можно без опыта
-- небольшие контракты
+- {why}
+- подходящий размер контрактов
 
 📌 Следующий шаг:
-Найти тендер до 500 000–1 000 000₽
+Найти тендер до {limit}
 """
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):

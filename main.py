@@ -1,4 +1,5 @@
 import os
+import json
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
@@ -27,9 +28,22 @@ def main_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+PROFILES_FILE = "profiles.json"
+
+def load_profiles():
+    if os.path.exists(PROFILES_FILE):
+        with open(PROFILES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {int(k): v for k, v in data.items()}
+    return {}
+
+def save_profiles():
+    with open(PROFILES_FILE, "w", encoding="utf-8") as f:
+        json.dump({str(k): v for k, v in user_profile.items()}, f, ensure_ascii=False, indent=2)
+
 user_histories = {}
 user_state = {}
-user_profile = {}
+user_profile = load_profiles()
 
 def format_profile(user_id):
     profile = user_profile.get(user_id)
@@ -113,6 +127,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "q4":
         user_profile.setdefault(user_id, {})["experience"] = update.message.text
         user_state[user_id] = None
+        save_profiles()
         await update.message.reply_text(
             "✅ Профиль заполнен!\n\n" + format_profile(user_id),
             reply_markup=main_menu()

@@ -42,6 +42,9 @@ def main_menu(user_id=None):
         profile = user_profile.get(user_id, {})
         if profile.get("familiarized"):
             keyboard.append(["🔁 Ознакомиться снова"])
+            has_no_company = "нет" in profile.get("company", "").lower() or "❌" in profile.get("company", "")
+            if has_no_company:
+                keyboard.append(["📌 Этап №1"])
             keyboard += [
                 ["📊 Мой профиль"],
                 ["🎯 Найти тендер"],
@@ -273,6 +276,19 @@ def get_tender_advice_by_amount(amount, profile):
         f"🔍 Ищи на zakupki.gov.ru с фильтром НМЦ до {fmt}₽"
     )
 
+async def get_registration_instructions(company_type):
+    prompt = f"""Ты — юридический консультант по бизнесу в России.
+
+Дай пошаговую инструкцию по регистрации {company_type} в России в 2024 году.
+Инструкция должна быть простой, без лишних терминов.
+Укажи: шаги, документы, стоимость, сроки.
+Формат: нумерованный список шагов, каждый шаг с кратким пояснением."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
 async def search_tenders_by_ai(amount, profile):
     company = profile.get("company", "не указана")
     experience = profile.get("experience", "нет")
@@ -462,6 +478,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_menu(user_id)
             )
         user_state[user_id] = None
+        return
+
+    if text == "📌 этап №1":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏦 ООО", callback_data="stage1_choose_ooo"),
+             InlineKeyboardButton("🏢 ИП", callback_data="stage1_choose_ip")]
+        ])
+        await update.message.reply_text(
+            "📌 ЭТАП №1 — Регистрация компании\n\nВыбери форму собственности:",
+            reply_markup=kb
+        )
         return
 
     if text in ("📖 ознакомиться", "🔁 ознакомиться снова"):
@@ -658,6 +685,54 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📋 Выбери тендер:",
             reply_markup=tender_results_inline_kb(tenders)
         )
+
+    elif data in ("stage1_choose_ooo", "stage1_choose_ip"):
+        company_type = "ООО" if data == "stage1_choose_ooo" else "ИП"
+        loading_msg = await query.message.reply_text(f"⏳ Формирую инструкцию по регистрации {company_type}...")
+        try:
+            instructions = await get_registration_instructions(company_type)
+            done_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Готово", callback_data="stage1_done")
+            ]])
+            await loading_msg.edit_text(
+                f"📋 Инструкция по регистрации {company_type}\n\n{instructions}",
+                reply_markup=done_kb
+            )
+        except Exception:
+            await loading_msg.edit_text("⚠️ Не удалось получить инструкцию. Попробуй ещё раз.")
+
+    elif data == "stage1_done":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📌 Этап №2", callback_data="stage2")],
+            [InlineKeyboardButton("⬅️ Вернуться назад", callback_data="stage1_back")]
+        ])
+        await query.message.reply_text(
+            "✅ Отлично! Что дальше?",
+            reply_markup=kb
+        )
+
+    elif data == "stage1_back":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📌 Этап №1", callback_data="stage1_open")],
+            [InlineKeyboardButton("➡️ Следующий этап", callback_data="stage2")]
+        ])
+        await query.message.reply_text(
+            "Выбери действие:",
+            reply_markup=kb
+        )
+
+    elif data == "stage1_open":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏦 ООО", callback_data="stage1_choose_ooo"),
+             InlineKeyboardButton("🏢 ИП", callback_data="stage1_choose_ip")]
+        ])
+        await query.message.reply_text(
+            "📌 ЭТАП №1 — Регистрация компании\n\nВыбери форму собственности:",
+            reply_markup=kb
+        )
+
+    elif data == "stage2":
+        await query.answer("🚧 Этап №2 в разработке", show_alert=True)
 
     elif data in ("tender_back", "tender_choose_again"):
         await query.message.reply_text(

@@ -2,7 +2,7 @@ import os
 import json
 import itertools
 from datetime import datetime, timezone, time as dtime
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
 
@@ -360,7 +360,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📊 мой профиль":
         with open("profile_banner.png", "rb") as photo:
-            await update.message.reply_photo(photo)
+            await update.message.reply_photo(photo, reply_markup=ReplyKeyboardRemove())
         await update.message.reply_text(format_profile(user_id), reply_markup=profile_inline_kb(user_id))
         return
 

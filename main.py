@@ -98,6 +98,8 @@ def format_profile(user_id):
 
 🧠 Опыт: {profile.get('experience', '-')}
 
+📋 Проанализировано тендеров: {profile.get('analyzed_count', 0)}
+
 ⏱ Время твоего опыта: {duration}
 
 🎯 Статус: Новичок в тендерах
@@ -246,6 +248,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {"role": "user", "content": prompt}
                 ]
             )
+            p = user_profile.setdefault(user_id, {})
+            p["analyzed_count"] = p.get("analyzed_count", 0) + 1
+            save_profiles()
             await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
         except RateLimitError:
             await update.message.reply_text(

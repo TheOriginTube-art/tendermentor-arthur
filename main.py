@@ -119,6 +119,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu(user_id)
     )
 
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.chat_id
+    user_profile.pop(user_id, None)
+    user_state.pop(user_id, None)
+    user_histories.pop(user_id, None)
+    save_profiles()
+    await update.message.reply_text(
+        "🔄 Профиль сброшен. Нажми 🚀 Начать, чтобы заполнить заново.",
+        reply_markup=main_menu(user_id)
+    )
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.chat_id
     text = update.message.text.lower()
@@ -280,6 +291,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("reset", reset))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 app.run_polling()

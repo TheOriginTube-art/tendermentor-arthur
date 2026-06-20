@@ -632,6 +632,7 @@ def tender_results_inline_kb(tenders, show_back=True):
     if show_back:
         buttons.append([InlineKeyboardButton("🔄 Найти другие", callback_data="tender_choose_again")])
         buttons.append([InlineKeyboardButton("⬅️ Изменить сумму", callback_data="tender_back")])
+    buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
     return InlineKeyboardMarkup(buttons)
 
 def format_tender_card(t, idx, total):
@@ -937,7 +938,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.message.chat_id
     data = query.data
 
-    if data == "profile_back":
+    if data == "menu_home":
+        await query.message.reply_text("Главное меню 👇", reply_markup=main_menu(user_id))
+
+    elif data == "profile_back":
         await query.message.reply_text("Главное меню 👇", reply_markup=main_menu(user_id))
 
     elif data == "profile_edit_company":
@@ -1007,6 +1011,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📄 Детально", callback_data=f"tender_detail_{idx}"),
         ])
         kb.append([InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")])
+        kb.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
         await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb))
 
     elif data.startswith("tender_analyze_"):
@@ -1026,6 +1031,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             back_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"tender_result_{idx}")],
                 [InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
             ])
             await thinking_msg.delete()
             await safe_reply(
@@ -1056,6 +1062,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🤖 Краткий разбор", callback_data=f"tender_analyze_{idx}")],
                 [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"tender_result_{idx}")],
                 [InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
             ])
             await thinking_msg.delete()
             # Telegram limit is 4096 chars — split if needed

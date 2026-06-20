@@ -1004,6 +1004,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = user_state.get(user_id)
 
+    if state == "profile_city":
+        city = update.message.text.strip()
+        if len(city) < 2:
+            await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
+            return
+        user_profile.setdefault(user_id, {})["city"] = city
+        save_profiles()
+        user_state[user_id] = None
+        await update.message.reply_text(
+            f"✅ Город обновлён: *{city}*\n\n" + format_profile(user_id),
+            parse_mode="Markdown",
+            reply_markup=profile_inline_kb(user_id)
+        )
+        return
+
     if state == "tender_city":
         city = update.message.text.strip()
         if len(city) < 2:
@@ -1339,7 +1354,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "profile_change_city":
-        user_state[user_id] = "tender_city"
+        user_state[user_id] = "profile_city"
         current_city = user_profile.get(user_id, {}).get("city")
         if current_city:
             await query.message.reply_text(

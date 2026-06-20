@@ -44,12 +44,12 @@ def main_menu(user_id=None):
             keyboard.append(["🔁 Ознакомиться снова"])
         else:
             keyboard.append(["📖 Ознакомиться"])
-    keyboard += [
-        ["📊 Мой профиль"],
-        ["🎯 Найти тендер"],
-        ["📄 Анализ тендера"],
-        ["💬 Спросить ИИ"]
-    ]
+        keyboard += [
+            ["📊 Мой профиль"],
+            ["🎯 Найти тендер"],
+            ["📄 Анализ тендера"],
+            ["💬 Спросить ИИ"]
+        ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 TENDER_INFO = """

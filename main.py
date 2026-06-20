@@ -51,6 +51,27 @@ def format_profile(user_id):
 🎯 Статус: Новичок в тендерах
 """
 
+def get_tender_advice(profile):
+    budget = profile.get("budget", "неизвестно")
+
+    return f"""
+🎯 РЕКОМЕНДОВАННЫЕ НАПРАВЛЕНИЯ
+
+На основе твоего профиля:
+
+👉 Уборка помещений
+👉 Мелкий ремонт
+👉 Благоустройство
+
+💡 Почему:
+- низкий порог входа
+- можно без опыта
+- небольшие контракты
+
+📌 Следующий шаг:
+Найти тендер до 10 000–20 000€
+"""
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я TenderStart AI\n\n"

@@ -580,6 +580,7 @@ def tender_search_inline_kb(user_id):
             row = []
     if row:
         buttons.append(row)
+    buttons.append([InlineKeyboardButton("✏️ Другая сумма", callback_data="tender_custom_amount")])
     buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
     return InlineKeyboardMarkup(buttons)
 
@@ -880,6 +881,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Выбери бюджет 👇",
             reply_markup=tender_search_inline_kb(user_id)
+        )
+        return
+
+    if state == "custom_amount":
+        raw = re.sub(r"[^\d]", "", update.message.text)
+        if not raw or int(raw) < 10000:
+            await update.message.reply_text(
+                "⚠️ Введи сумму от 10 000₽. Например: *500000*",
+                parse_mode="Markdown"
+            )
+            return
+        amount = int(raw)
+        user_tender_amount[user_id] = amount
+        user_state[user_id] = None
+        fmt = f"{amount:,}".replace(",", " ")
+        await update.message.reply_text(
+            f"💰 Сумма: до {fmt}₽\n\n🗂 Выбери тему тендера:",
+            reply_markup=tender_topic_inline_kb(amount)
         )
         return
 
@@ -1382,6 +1401,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             "💰 Выбери максимальную сумму тендера:",
             reply_markup=tender_search_inline_kb(user_id)
+        )
+
+    elif data == "tender_custom_amount":
+        user_state[user_id] = "custom_amount"
+        await query.message.reply_text(
+            "✏️ Напиши сумму тендера в рублях (например: *500000* или *1 500 000*):",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")
+            ]])
         )
 
     elif data == "tender_back":

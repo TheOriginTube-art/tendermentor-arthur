@@ -17,6 +17,16 @@ SYSTEM_PROMPT = """
 Не перегружай.
 """
 
+def main_menu():
+    keyboard = [
+        ["🚀 Начать"],
+        ["📊 Мой профиль"],
+        ["🎯 Найти тендер"],
+        ["📄 Анализ тендера"],
+        ["💬 Спросить ИИ"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 user_histories = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -62,6 +62,13 @@ user_histories = {}
 user_state = {}
 user_profile = load_profiles()
 
+def get_status(count):
+    if count >= 20:
+        return "🏆 Опытный участник"
+    elif count >= 5:
+        return "📈 Участник"
+    return "🌱 Новичок"
+
 def format_duration(registered_at_str):
     try:
         registered_at = datetime.fromisoformat(registered_at_str)
@@ -88,12 +95,7 @@ def format_profile(user_id):
     duration = format_duration(profile.get("registered_at", ""))
     count = profile.get("analyzed_count", 0)
 
-    if count >= 20:
-        status = "🏆 Опытный участник"
-    elif count >= 5:
-        status = "📈 Участник"
-    else:
-        status = "🌱 Новичок"
+    status = get_status(count)
 
     return f"""
 📊 ТВОЙ ПРОФИЛЬ
@@ -257,9 +259,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]
             )
             p = user_profile.setdefault(user_id, {})
+            old_status = get_status(p.get("analyzed_count", 0))
             p["analyzed_count"] = p.get("analyzed_count", 0) + 1
+            new_status = get_status(p["analyzed_count"])
             save_profiles()
             await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
+            if new_status != old_status:
+                await update.message.reply_text(
+                    f"🎉 Поздравляю! Ты получил новый статус: {new_status}",
+                    reply_markup=main_menu(user_id)
+                )
         except RateLimitError:
             await update.message.reply_text(
                 "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",

@@ -470,11 +470,9 @@ def main_menu(user_id=None):
         keyboard.append(["🚀 Начать"])
     else:
         profile = user_profile.get(user_id, {})
-        if profile.get("familiarized"):
-            keyboard.append(["🔁 Ознакомиться снова"])
-            has_no_company = "нет" in profile.get("company", "").lower() or "❌" in profile.get("company", "")
-            if has_no_company:
-                keyboard.append(["📌 Этап №1"])
+        if profile.get("stages_completed"):
+            # Полное меню — открывается только после прохождения всех этапов
+            keyboard.append(["🔄 Повторить этапы"])
             keyboard += [
                 ["📊 Мой профиль"],
                 ["🎯 Найти тендер"],
@@ -483,6 +481,9 @@ def main_menu(user_id=None):
             ]
             if user_id and get_active_saved_tenders(user_id):
                 keyboard.append(["📁 Мои тендеры"])
+        elif profile.get("familiarized"):
+            # Ознакомился, но этапы ещё не пройдены — ждём завершения онбординга
+            keyboard.append(["📖 Ознакомиться"])
         else:
             keyboard.append(["📖 Ознакомиться"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -534,6 +535,89 @@ TENDER_INFO = """
 Начни с небольших тендеров до 500 000₽ — там меньше конкурентов и проще документация. Первые 2–3 контракта дадут тебе опыт и репутацию.
 """
 
+STAGE2_INFO = """
+📌 ЭТАП №2 — Получение электронной подписи (ЭЦП)
+
+Без ЭЦП невозможно подать заявку ни на одну электронную торговую площадку. Это твой цифровой паспорт в тендерном бизнесе.
+
+━━━━━━━━━━━━━━━━━━━━━
+🔑 ЧТО ТАКОЕ ЭЦП?
+
+Электронная цифровая подпись — это файл на токене (USB-флешке), который юридически подтверждает твою личность при подписании документов онлайн.
+
+━━━━━━━━━━━━━━━━━━━━━
+📋 КАК ПОЛУЧИТЬ ЭЦП?
+
+1️⃣ Выбери аккредитованный удостоверяющий центр
+   Популярные: Контур, Тензор (СБИС), Астрал, ИТК.
+   Перечень всех УЦ: mindigital.gov.ru
+
+2️⃣ Подготовь документы
+   • Паспорт РФ
+   • СНИЛС
+   • ИНН
+   • Выписка из ЕГРЮЛ/ЕГРИП (если уже зарегистрирован)
+
+3️⃣ Обратись в УЦ лично или онлайн
+   Некоторые центры выдают ЭЦП удалённо через Госуслуги.
+
+4️⃣ Получи токен и установи программу
+   Для работы с ЭЦП понадобится программа КриптоПро CSP.
+
+━━━━━━━━━━━━━━━━━━━━━
+💰 СТОИМОСТЬ
+
+Для участия в тендерах по 44-ФЗ: бесплатно через ФНС
+Для коммерческих тендеров (223-ФЗ): от 3 000 до 7 000₽/год
+
+━━━━━━━━━━━━━━━━━━━━━
+⏱ СРОК ИЗГОТОВЛЕНИЯ
+
+От 1 часа до 3 рабочих дней в зависимости от УЦ.
+
+💡 СОВЕТ: Закажи ЭЦП заранее, до того как найдёшь интересный тендер — иначе не успеешь подать заявку вовремя.
+"""
+
+STAGE3_INFO = """
+📌 ЭТАП №3 — Регистрация на торговых площадках (ЭТП)
+
+После получения ЭЦП нужно зарегистрироваться на электронных торговых площадках, где размещаются тендеры.
+
+━━━━━━━━━━━━━━━━━━━━━
+🏪 ОСНОВНЫЕ ПЛОЩАДКИ (44-ФЗ)
+
+По закону все гостендеры проходят на 8 федеральных ЭТП:
+
+🔹 Сбербанк-АСТ — sberbankast.ru
+🔹 РТС-Тендер — rts-tender.ru
+🔹 Росэлторг — roseltorg.ru
+🔹 НЭП (Фабрикант) — fabrikant.ru
+🔹 Заказ РФ — zakazrf.ru
+🔹 ЭТП ГПБ — etpgpb.ru
+
+━━━━━━━━━━━━━━━━━━━━━
+📋 КАК ЗАРЕГИСТРИРОВАТЬСЯ?
+
+1️⃣ Зарегистрируйся в ЕРУЗ
+   Единый реестр участников закупок: zakupki.gov.ru
+   Это обязательный первый шаг — без него площадки не примут.
+   Срок: до 5 рабочих дней.
+
+2️⃣ Дождись аккредитации
+   После регистрации в ЕРУЗ площадки автоматически аккредитуют тебя в течение 1 рабочего дня.
+
+3️⃣ Пополни спецсчёт
+   Для участия в аукционах нужен специальный счёт в уполномоченном банке (Сбер, ВТБ, Открытие и др.).
+   Туда блокируется обеспечение заявки (0.5–5% от суммы тендера).
+
+━━━━━━━━━━━━━━━━━━━━━
+✅ ПОСЛЕ РЕГИСТРАЦИИ
+
+Ты готов участвовать в тендерах! Используй раздел *«🎯 Найти тендер»* в нашем боте — мы подберём подходящие варианты под твой бюджет и город.
+
+💡 СОВЕТ: Начни с тендеров до 300 000₽ — там упрощённые требования и меньше конкурентов.
+"""
+
 PROFILES_FILE = "profiles.json"
 SAVED_TENDERS_FILE = "saved_tenders.json"
 SAVED_TENDER_TTL_HOURS = 72
@@ -542,7 +626,17 @@ def load_profiles():
     if os.path.exists(PROFILES_FILE):
         with open(PROFILES_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return {int(k): v for k, v in data.items()}
+            profiles = {int(k): v for k, v in data.items()}
+            # Миграция: старые пользователи с familiarized=True получают stages_completed=True
+            changed = False
+            for uid, p in profiles.items():
+                if p.get("familiarized") and not p.get("stages_completed"):
+                    p["stages_completed"] = True
+                    changed = True
+            if changed:
+                with open(PROFILES_FILE, "w", encoding="utf-8") as wf:
+                    json.dump({str(k): v for k, v in profiles.items()}, wf, ensure_ascii=False, indent=2)
+            return profiles
     return {}
 
 def save_profiles():
@@ -1031,9 +1125,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "✅ ознакомлен":
         user_profile.setdefault(user_id, {})["familiarized"] = True
         save_profiles()
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📌 Этап №1 — Регистрация компании", callback_data="stage1_open")
+        ]])
         await update.message.reply_text(
-            "🎓 Отлично! Теперь ты знаешь основы тендерного бизнеса.\n\nВыбери следующий шаг 👇",
-            reply_markup=main_menu(user_id)
+            "🎓 Отлично! Теперь давай пройдём 3 этапа подготовки к тендерному бизнесу.\n\n"
+            "Начнём с первого шага 👇",
+            reply_markup=kb
+        )
+        return
+
+    if text == "🔄 повторить этапы":
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📌 Этап №1 — Регистрация компании", callback_data="stage1_open")
+        ]])
+        await update.message.reply_text(
+            "🔄 Повторяем этапы с самого начала:\n\nНажми кнопку ниже, чтобы начать 👇",
+            reply_markup=kb
         )
         return
 
@@ -1442,18 +1550,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "stage1_done":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📌 Этап №2", callback_data="stage2")],
-            [InlineKeyboardButton("⬅️ Вернуться назад", callback_data="stage1_back")]
+            [InlineKeyboardButton("📌 Этап №2 — ЭЦП", callback_data="stage2_open")],
+            [InlineKeyboardButton("⬅️ Повторить Этап №1", callback_data="stage1_open")]
         ])
         await query.message.reply_text(
-            "✅ Отлично! Что дальше?",
+            "✅ Этап №1 пройден! Переходим к следующему шагу 👇",
             reply_markup=kb
         )
 
     elif data == "stage1_back":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📌 Этап №1", callback_data="stage1_open")],
-            [InlineKeyboardButton("➡️ Следующий этап", callback_data="stage2")]
+            [InlineKeyboardButton("➡️ Следующий этап", callback_data="stage2_open")]
         ])
         await query.message.reply_text(
             "Выбери действие:",
@@ -1470,11 +1578,53 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb
         )
 
-    elif data == "stage2":
+    elif data == "stage2" or data == "stage2_open":
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📌 Этап №2", callback_data="stage2_open")]
+            [InlineKeyboardButton("✅ Понятно, перейти к Этапу №3", callback_data="stage2_done")],
+            [InlineKeyboardButton("⬅️ Вернуться к Этапу №1", callback_data="stage1_open")]
         ])
-        await query.message.edit_reply_markup(reply_markup=kb)
+        await query.message.reply_text(STAGE2_INFO, reply_markup=kb, parse_mode="Markdown")
+
+    elif data == "stage2_done":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📌 Этап №3 — Торговые площадки", callback_data="stage3_open")],
+            [InlineKeyboardButton("⬅️ Повторить Этап №2", callback_data="stage2_open")]
+        ])
+        await query.message.reply_text(
+            "✅ Этап №2 пройден! Ещё один шаг до старта 👇",
+            reply_markup=kb
+        )
+
+    elif data == "stage3_open":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Всё понял, готов!", callback_data="stage3_done")],
+            [InlineKeyboardButton("⬅️ Вернуться к Этапу №2", callback_data="stage2_open")]
+        ])
+        await query.message.reply_text(STAGE3_INFO, reply_markup=kb, parse_mode="Markdown")
+
+    elif data == "stage3_done":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Приступить!", callback_data="onboarding_complete")],
+            [InlineKeyboardButton("⬅️ Повторить Этап №3", callback_data="stage3_open")]
+        ])
+        await query.message.reply_text(
+            "🎓 Отлично! Ты прошёл все 3 этапа подготовки.\n\n"
+            "Теперь ты знаешь:\n"
+            "✅ Как зарегистрировать компанию\n"
+            "✅ Как получить ЭЦП\n"
+            "✅ Как зарегистрироваться на торговых площадках\n\n"
+            "Нажми кнопку ниже, чтобы открыть полное меню 👇",
+            reply_markup=kb
+        )
+
+    elif data == "onboarding_complete":
+        user_profile.setdefault(user_id, {})["stages_completed"] = True
+        user_profile.setdefault(user_id, {})["familiarized"] = True
+        save_profiles()
+        await query.message.reply_text(
+            "🚀 Добро пожаловать в TenderStart AI!\n\nГлавное меню открыто. Удачи в тендерах! 💪",
+            reply_markup=main_menu(user_id)
+        )
 
     elif data == "tender_choose_again":
         amount = user_tender_amount.get(user_id)

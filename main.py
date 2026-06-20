@@ -30,10 +30,10 @@ def main_menu():
 user_histories = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_histories[user_id] = []
     await update.message.reply_text(
-        "Привет! Я Tender AI.\n\nПомогу тебе начать тендерный бизнес с нуля.\n\nВыбери действие:",
+        "👋 Привет! Я TenderStart AI\n\n"
+        "Я помогу тебе начать тендерный бизнес с нуля.\n\n"
+        "Выбери действие в меню 👇",
         reply_markup=main_menu()
     )
 

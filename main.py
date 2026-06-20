@@ -215,6 +215,63 @@ def get_tender_advice(profile):
 Найти тендер до {limit}
 """
 
+def parse_budget_max(profile):
+    budget = profile.get("budget", "")
+    for marker, amount in [("500", 500000), ("300", 300000), ("100", 100000), ("50", 50000)]:
+        if marker in budget.replace(" ", ""):
+            return amount
+    return 100000
+
+def tender_search_inline_kb(user_id):
+    profile = user_profile.get(user_id, {})
+    max_amount = parse_budget_max(profile)
+    steps = list(range(50000, max_amount + 1, 50000))
+    buttons = []
+    row = []
+    for i, amount in enumerate(steps):
+        label = f"до {amount // 1000} 000₽"
+        row.append(InlineKeyboardButton(label, callback_data=f"tender_budget_{amount}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="tender_back")])
+    return InlineKeyboardMarkup(buttons)
+
+def get_tender_advice_by_amount(amount, profile):
+    company = profile.get("company", "")
+    experience = profile.get("experience", "")
+    has_company = "ип" in company.lower() or "ооо" in company.lower()
+    has_experience = "есть опыт" in experience.lower() or "✅" in experience
+
+    if amount <= 100000:
+        directions = ["🧹 Уборка помещений", "🌱 Мелкое благоустройство", "📋 Мелкие услуги"]
+    elif amount <= 200000:
+        directions = ["🔧 Техобслуживание", "📦 Мелкая поставка товаров", "🖨 Канцтовары и расходники"]
+    elif amount <= 300000:
+        directions = ["🌿 Благоустройство", "🔨 Мелкий ремонт помещений", "📦 Поставка оборудования"]
+    elif amount <= 400000:
+        directions = ["🏗 Строительные работы", "🚛 Поставка стройматериалов", "🛠 Монтажные работы"]
+    else:
+        directions = ["🏗 Строительство и ремонт", "🚛 Крупные поставки", "🧹 Клининг крупных объектов"]
+
+    why = "без опыта" if not has_experience else "соответствует твоему опыту"
+    company_tip = "Для участия потребуется ИП или ООО." if not has_company else "Ты можешь участвовать со своей компанией."
+    fmt = f"{amount:,}".replace(",", " ")
+    dirs_text = "".join("👉 " + d + "\n" for d in directions)
+
+    return (
+        f"🎯 ТЕНДЕРЫ ДО {fmt}₽\n\n"
+        f"Рекомендованные направления:\n\n"
+        f"{dirs_text}\n"
+        f"💡 Почему:\n"
+        f"— низкий порог входа\n"
+        f"— {why}\n\n"
+        f"📌 {company_tip}\n\n"
+        f"🔍 Ищи на zakupki.gov.ru с фильтром НМЦ до {fmt}₽"
+    )
+
 def profile_inline_kb(user_id):
     has_company = bool(user_profile.get(user_id, {}).get("company_name"))
     company_label = "✏️ Редактировать компанию" if has_company else "➕ Добавить компанию"
@@ -377,8 +434,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎯 найти тендер":
-        profile = user_profile.get(user_id, {})
-        await update.message.reply_text(get_tender_advice(profile), reply_markup=main_menu(user_id))
+        await update.message.reply_text(
+            "💰 Выбери максимальную сумму тендера:",
+            reply_markup=tender_search_inline_kb(user_id)
+        )
         return
 
     if text == "📄 анализ тендера":
@@ -486,6 +545,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = "add_company"
         await query.message.reply_text(
             "🏢 Введи название своей компании (например: ООО «Ромашка» или ИП Иванов И.И.):"
+        )
+
+    elif data.startswith("tender_budget_"):
+        amount = int(data.split("_")[-1])
+        profile = user_profile.get(user_id, {})
+        advice = get_tender_advice_by_amount(amount, profile)
+        back_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("⬅️ Выбрать другую сумму", callback_data="tender_choose_again")
+        ]])
+        await query.message.reply_text(advice, reply_markup=back_kb)
+
+    elif data in ("tender_back", "tender_choose_again"):
+        await query.message.reply_text(
+            "💰 Выбери максимальную сумму тендера:",
+            reply_markup=tender_search_inline_kb(user_id)
         )
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()

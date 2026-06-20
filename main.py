@@ -160,26 +160,77 @@ def _fetch_tender_page(url):
     skip = {'Поиск Закупок', 'Регистрация/вход', 'На контроль', 'Подача заявок',
             'К источнику', 'Мы используем Cookies', 'Карта сайта', 'По отраслям',
             'По регионам', 'По площадкам', 'По заказчикам', 'По ключевым словам',
-            'Поиск закупок', 'пн-пт с 9:00 до 18:00'}
+            'Поиск закупок', 'пн-пт с 9:00 до 18:00', 'Похожие закупки',
+            'Тарифы', 'Блог', 'Аутсорсинг', 'Главная', 'Регион', 'Опубликована',
+            'Закупка', 'Начальная цена', 'API'}
     cleaned = [l for l in lines if l not in skip and not l.startswith('info@')
                and not l.startswith('8(800)') and '░' not in l
-               and 'ИНН' not in l and 'ОГРН' not in l and 'Cookies' not in l]
-    return '\n'.join(cleaned[:80])
+               and 'ИНН' not in l and 'ОГРН' not in l and 'Cookies' not in l
+               and 'zakupki360' not in l.lower() and not l.startswith('Адрес:')]
+    return '\n'.join(cleaned[:100])
+
+def _fetch_tender_page_detailed(url):
+    """Расширенный парсинг: извлекает документы, тип закупки, площадку и полную структуру."""
+    r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    raw_text = r.text
+
+    # --- Документы ---
+    docs = []
+    doc_section_start = raw_text.find('Документы')
+    if doc_section_start > 0:
+        doc_html = raw_text[doc_section_start:doc_section_start + 5000]
+        doc_soup = BeautifulSoup(doc_html, 'html.parser')
+        for div in doc_soup.find_all('div', class_=lambda c: c and 'title' in str(c)):
+            txt = div.get_text().strip()
+            if txt and len(txt) > 2 and txt != 'Документы':
+                docs.append(txt)
+
+    # --- Структурированные поля ---
+    lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 2]
+    skip = {'Поиск Закупок', 'Регистрация/вход', 'На контроль', 'Подача заявок',
+            'К источнику', 'Мы используем Cookies', 'Карта сайта', 'По отраслям',
+            'По регионам', 'По площадкам', 'По заказчикам', 'По ключевым словам',
+            'Поиск закупок', 'пн-пт с 9:00 до 18:00', 'Похожие закупки',
+            'Тарифы', 'Блог', 'Аутсорсинг', 'Главная', 'Регион', 'Опубликована',
+            'Закупка', 'API', 'На контроль'}
+    cleaned = [l for l in lines if l not in skip and not l.startswith('info@')
+               and not l.startswith('8(800)') and '░' not in l
+               and 'ИНН' not in l and 'ОГРН' not in l and 'Cookies' not in l
+               and 'zakupki360' not in l.lower() and not l.startswith('Адрес:')]
+
+    # Убираем дубли, сохраняем порядок
+    seen = set()
+    unique = []
+    for l in cleaned:
+        if l not in seen:
+            seen.add(l)
+            unique.append(l)
+
+    result = '\n'.join(unique[:80])
+    if docs:
+        unique_docs = list(dict.fromkeys(docs))  # убрать дубли
+        result += f"\n\nДОКУМЕНТЫ ТЕНДЕРА:\n" + '\n'.join(f"• {d}" for d in unique_docs)
+    return result
+
+def _build_tender_text(tender):
+    """Формирует текст тендера для AI из AI-сгенерированного тендера."""
+    return (
+        f"Название: {tender.get('title')}\n"
+        f"Заказчик: {tender.get('customer', '—')}\n"
+        f"Сумма: {tender.get('amount', '—')}₽\n"
+        f"Регион: {tender.get('region', '—')}\n"
+        f"Срок: {tender.get('deadline', '—')}\n"
+        f"Описание: {tender.get('description', '—')}\n"
+        f"Требования: {tender.get('requirements', '—')}"
+    )
 
 async def analyze_tender_by_ai(tender, user_id):
     if tender.get('source') == 'real' and tender.get('url'):
         loop = asyncio.get_event_loop()
         page_text = await loop.run_in_executor(None, _fetch_tender_page, tender['url'])
     else:
-        page_text = (
-            f"Название: {tender.get('title')}\n"
-            f"Заказчик: {tender.get('customer', '—')}\n"
-            f"Сумма: {tender.get('amount', '—')}₽\n"
-            f"Регион: {tender.get('region', '—')}\n"
-            f"Срок: {tender.get('deadline', '—')}\n"
-            f"Описание: {tender.get('description', '—')}\n"
-            f"Требования: {tender.get('requirements', '—')}"
-        )
+        page_text = _build_tender_text(tender)
 
     prompt = f"""Ты — эксперт по государственным закупкам, помогающий новичкам.
 
@@ -207,6 +258,62 @@ async def analyze_tender_by_ai(tender, user_id):
             {"role": "user", "content": prompt}
         ],
         temperature=0.5
+    )
+    return response.choices[0].message.content
+
+async def analyze_tender_detailed_by_ai(tender, user_id):
+    """Детальный разбор: парсим расширенные данные страницы + GPT даёт пошаговый план."""
+    if tender.get('source') == 'real' and tender.get('url'):
+        loop = asyncio.get_event_loop()
+        page_text = await loop.run_in_executor(None, _fetch_tender_page_detailed, tender['url'])
+    else:
+        page_text = _build_tender_text(tender)
+
+    prompt = f"""Ты — опытный тендерный специалист с 10 годами практики.
+
+Перед тобой полные данные тендера (включая список документов если указан):
+---
+{page_text}
+---
+
+Сделай ДЕТАЛЬНЫЙ разбор для человека, который хочет участвовать в этом тендере впервые.
+
+Формат ответа (строго по разделам):
+
+📁 ДОКУМЕНТЫ ТЕНДЕРА
+Перечисли документы из тендера и объясни что в каждом из них обычно написано (ИЗВЕЩЕНИЕ, ТЗ, Смета, Конкурсная документация и т.д.). Если документы не указаны — опиши стандартный набор для данного типа закупки.
+
+📋 ЧТО НУЖНО ПОДГОТОВИТЬ
+Полный список документов от участника для подачи заявки (с пояснением каждого пункта).
+
+🏗 НУЖНЫ ЛИ ЛИЦЕНЗИИ / СРО
+Укажи конкретно: нужно ли членство в СРО, какие лицензии, допуски — для данного вида работ/поставки.
+
+📅 ПОШАГОВЫЙ ПЛАН УЧАСТИЯ
+Нумерованный список шагов от сегодня до подачи заявки. Конкретные действия с примерными сроками.
+
+💸 ФИНАНСОВЫЙ РАСЧЁТ
+• Обеспечение заявки (обычно 0.5–5% от НМЦ)
+• Обеспечение контракта (обычно 5–30%)
+• Возможные расходы на участие
+• Примерная маржа при победе
+
+⚠️ ТИПИЧНЫЕ ОШИБКИ НОВИЧКОВ
+3–5 частых ошибок при участии в похожих тендерах. Как их избежать.
+
+🎯 ЭКСПЕРТНАЯ ОЦЕНКА
+Честный вывод: насколько реально выиграть новичку, что усиливает и ослабляет позицию. Конкретный совет.
+
+Пиши чётко, без воды. Используй числа и факты где возможно."""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": build_system_prompt(user_id)},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.4,
+        max_tokens=1800
     )
     return response.choices[0].message.content
 
@@ -895,7 +1002,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = []
         if nav_buttons:
             kb.append(nav_buttons)
-        kb.append([InlineKeyboardButton("🤖 Разобрать тендер", callback_data=f"tender_analyze_{idx}")])
+        kb.append([
+            InlineKeyboardButton("🤖 Разобрать тендер", callback_data=f"tender_analyze_{idx}"),
+            InlineKeyboardButton("📄 Детально", callback_data=f"tender_detail_{idx}"),
+        ])
         kb.append([InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")])
         await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb))
 
@@ -925,8 +1035,46 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except RateLimitError:
             await thinking_msg.edit_text("⚠️ Превышен лимит OpenAI. Пополните баланс и попробуйте снова.")
-        except Exception as e:
-            await thinking_msg.edit_text(f"⚠️ Не удалось проанализировать тендер. Попробуй ещё раз.")
+        except Exception:
+            await thinking_msg.edit_text("⚠️ Не удалось проанализировать тендер. Попробуй ещё раз.")
+
+    elif data.startswith("tender_detail_"):
+        idx = int(data.split("_")[-1])
+        tenders = user_tender_results.get(user_id, [])
+        if not tenders or idx >= len(tenders):
+            await query.message.reply_text("⚠️ Тендер не найден. Выполни поиск заново.")
+            return
+        tender = tenders[idx]
+        title_short = tender['title'][:50] + ('…' if len(tender['title']) > 50 else '')
+        thinking_msg = await query.message.reply_text(
+            f"📄 Изучаю документацию тендера...\n\n_{title_short}_\n\nСобираю данные и готовлю детальный разбор ⏳",
+            parse_mode='Markdown'
+        )
+        try:
+            analysis = await analyze_tender_detailed_by_ai(tender, user_id)
+            back_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤖 Краткий разбор", callback_data=f"tender_analyze_{idx}")],
+                [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"tender_result_{idx}")],
+                [InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")],
+            ])
+            await thinking_msg.delete()
+            # Telegram limit is 4096 chars — split if needed
+            header = f"📄 *ДЕТАЛЬНЫЙ РАЗБОР ТЕНДЕРА*\n\n"
+            full_text = header + analysis
+            if len(full_text) <= 4096:
+                await safe_reply(query.message, full_text, reply_markup=back_kb)
+            else:
+                # Send in two parts
+                mid = len(full_text) // 2
+                split_at = full_text.rfind('\n', mid - 200, mid + 200)
+                if split_at == -1:
+                    split_at = mid
+                await safe_reply(query.message, full_text[:split_at])
+                await safe_reply(query.message, full_text[split_at:].strip(), reply_markup=back_kb)
+        except RateLimitError:
+            await thinking_msg.edit_text("⚠️ Превышен лимит OpenAI. Пополните баланс и попробуйте снова.")
+        except Exception:
+            await thinking_msg.edit_text("⚠️ Не удалось выполнить детальный анализ. Попробуй ещё раз.")
 
     elif data == "tender_show_list":
         tenders = user_tender_results.get(user_id, [])

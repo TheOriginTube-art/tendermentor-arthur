@@ -42,14 +42,14 @@ def main_menu(user_id=None):
         profile = user_profile.get(user_id, {})
         if profile.get("familiarized"):
             keyboard.append(["🔁 Ознакомиться снова"])
+            keyboard += [
+                ["📊 Мой профиль"],
+                ["🎯 Найти тендер"],
+                ["📄 Анализ тендера"],
+                ["💬 Спросить ИИ"]
+            ]
         else:
             keyboard.append(["📖 Ознакомиться"])
-        keyboard += [
-            ["📊 Мой профиль"],
-            ["🎯 Найти тендер"],
-            ["📄 Анализ тендера"],
-            ["💬 Спросить ИИ"]
-        ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 TENDER_INFO = """

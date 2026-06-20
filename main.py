@@ -18,9 +18,11 @@ SYSTEM_PROMPT = """
 Не перегружай.
 """
 
-def main_menu():
-    keyboard = [
-        ["🚀 Начать"],
+def main_menu(user_id=None):
+    keyboard = []
+    if user_id is None or not user_profile.get(user_id):
+        keyboard.append(["🚀 Начать"])
+    keyboard += [
         ["📊 Мой профиль"],
         ["🎯 Найти тендер"],
         ["📄 Анализ тендера"],
@@ -87,11 +89,12 @@ def get_tender_advice(profile):
 """
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.chat_id
     await update.message.reply_text(
         "👋 Привет! Я TenderStart AI\n\n"
         "Я помогу тебе начать тендерный бизнес с нуля.\n\n"
         "Выбери действие в меню 👇",
-        reply_markup=main_menu()
+        reply_markup=main_menu(user_id)
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -130,7 +133,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_profiles()
         await update.message.reply_text(
             "✅ Профиль заполнен!\n\n" + format_profile(user_id),
-            reply_markup=main_menu()
+            reply_markup=main_menu(user_id)
         )
         return
 
@@ -156,27 +159,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {"role": "user", "content": prompt}
                 ]
             )
-            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu())
+            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
         except RateLimitError:
             await update.message.reply_text(
                 "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
-                reply_markup=main_menu()
+                reply_markup=main_menu(user_id)
             )
         except Exception:
             await update.message.reply_text(
                 "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
-                reply_markup=main_menu()
+                reply_markup=main_menu(user_id)
             )
         user_state[user_id] = None
         return
 
     if text == "📊 мой профиль":
-        await update.message.reply_text(format_profile(user_id), reply_markup=main_menu())
+        await update.message.reply_text(format_profile(user_id), reply_markup=main_menu(user_id))
         return
 
     if text == "🎯 найти тендер":
         profile = user_profile.get(user_id, {})
-        await update.message.reply_text(get_tender_advice(profile), reply_markup=main_menu())
+        await update.message.reply_text(get_tender_advice(profile), reply_markup=main_menu(user_id))
         return
 
     if text == "📄 анализ тендера":
@@ -193,16 +196,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {"role": "user", "content": text}
                 ]
             )
-            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu())
+            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
         except RateLimitError:
             await update.message.reply_text(
                 "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
-                reply_markup=main_menu()
+                reply_markup=main_menu(user_id)
             )
         except Exception:
             await update.message.reply_text(
                 "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
-                reply_markup=main_menu()
+                reply_markup=main_menu(user_id)
             )
         user_state[user_id] = None
         return
@@ -229,25 +232,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(user_histories[user_id]) > 40:
             user_histories[user_id] = user_histories[user_id][-40:]
 
-        await update.message.reply_text(answer, reply_markup=main_menu())
+        await update.message.reply_text(answer, reply_markup=main_menu(user_id))
 
     except RateLimitError:
         user_histories[user_id].pop()
         await update.message.reply_text(
             "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com и попробуйте снова.",
-            reply_markup=main_menu()
+            reply_markup=main_menu(user_id)
         )
     except APIError as e:
         user_histories[user_id].pop()
         await update.message.reply_text(
             f"⚠️ Ошибка OpenAI: {str(e)}\n\nПопробуйте ещё раз.",
-            reply_markup=main_menu()
+            reply_markup=main_menu(user_id)
         )
     except Exception:
         user_histories[user_id].pop()
         await update.message.reply_text(
             "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
-            reply_markup=main_menu()
+            reply_markup=main_menu(user_id)
         )
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()

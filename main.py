@@ -78,6 +78,7 @@ def tender_topic_inline_kb(amount):
             label, _ = TENDER_TOPICS[key]
             row.append(InlineKeyboardButton(label, callback_data=f"tender_topic_{amount}_{key}"))
         buttons.append(row)
+    buttons.append([InlineKeyboardButton("✏️ Другая сумма", callback_data="tender_custom_amount")])
     buttons.append([InlineKeyboardButton("⬅️ Изменить сумму", callback_data="tender_back")])
     return InlineKeyboardMarkup(buttons)
 

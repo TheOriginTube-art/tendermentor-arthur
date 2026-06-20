@@ -39,7 +39,11 @@ def main_menu(user_id=None):
     if user_id is None or not user_profile.get(user_id):
         keyboard.append(["🚀 Начать"])
     else:
-        keyboard.append(["📖 Ознакомиться"])
+        profile = user_profile.get(user_id, {})
+        if profile.get("familiarized"):
+            keyboard.append(["🔁 Ознакомиться снова"])
+        else:
+            keyboard.append(["📖 Ознакомиться"])
     keyboard += [
         ["📊 Мой профиль"],
         ["🎯 Найти тендер"],
@@ -332,8 +336,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_state[user_id] = None
         return
 
-    if text == "📖 ознакомиться":
-        await update.message.reply_text(TENDER_INFO, reply_markup=main_menu(user_id))
+    if text in ("📖 ознакомиться", "🔁 ознакомиться снова"):
+        confirm_kb = ReplyKeyboardMarkup([["✅ Ознакомлен"]], resize_keyboard=True, one_time_keyboard=True)
+        await update.message.reply_text(TENDER_INFO, reply_markup=confirm_kb)
+        return
+
+    if text == "✅ ознакомлен":
+        user_profile.setdefault(user_id, {})["familiarized"] = True
+        save_profiles()
+        await update.message.reply_text(
+            "🎓 Отлично! Теперь ты знаешь основы тендерного бизнеса.\n\nВыбери следующий шаг 👇",
+            reply_markup=main_menu(user_id)
+        )
         return
 
     if text == "📊 мой профиль":

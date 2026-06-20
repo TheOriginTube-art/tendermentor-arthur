@@ -86,6 +86,14 @@ def format_profile(user_id):
         return "Профиль пуст. Нажми 🚀 Начать"
 
     duration = format_duration(profile.get("registered_at", ""))
+    count = profile.get("analyzed_count", 0)
+
+    if count >= 20:
+        status = "🏆 Опытный участник"
+    elif count >= 5:
+        status = "📈 Участник"
+    else:
+        status = "🌱 Новичок"
 
     return f"""
 📊 ТВОЙ ПРОФИЛЬ
@@ -98,11 +106,11 @@ def format_profile(user_id):
 
 🧠 Опыт: {profile.get('experience', '-')}
 
-📋 Проанализировано тендеров: {profile.get('analyzed_count', 0)}
+📋 Проанализировано тендеров: {count}
 
 ⏱ Время твоего опыта: {duration}
 
-🎯 Статус: Новичок в тендерах
+🎯 Статус: {status}
 """
 
 def get_tender_advice(profile):

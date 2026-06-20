@@ -751,6 +751,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = user_state.get(user_id)
 
+    if state == "tender_city":
+        city = update.message.text.strip()
+        if len(city) < 2:
+            await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
+            return
+        user_tender_city[user_id] = city
+        user_state[user_id] = None
+        await update.message.reply_text(
+            f"📍 Город: *{city}*\n\n💰 Теперь выбери максимальную сумму тендера:",
+            parse_mode="Markdown",
+            reply_markup=tender_search_inline_kb(user_id)
+        )
+        return
+
     if state == "q1":
         user_profile.setdefault(user_id, {})["country"] = update.message.text
         user_state[user_id] = "q2"
@@ -886,20 +900,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🏙 В каком городе ищем тендеры?\n\nНапиши название города (например: _Москва_, _Краснодар_, _Казань_):",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardRemove()
-        )
-        return
-
-    if state == "tender_city":
-        city = update.message.text.strip()
-        if len(city) < 2:
-            await update.message.reply_text("⚠️ Введи название города, например: *Москва*", parse_mode="Markdown")
-            return
-        user_tender_city[user_id] = city
-        user_state[user_id] = None
-        await update.message.reply_text(
-            f"📍 Город: *{city}*\n\n💰 Теперь выбери максимальную сумму тендера:",
-            parse_mode="Markdown",
-            reply_markup=tender_search_inline_kb(user_id)
         )
         return
 

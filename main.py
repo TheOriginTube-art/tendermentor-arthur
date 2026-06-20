@@ -164,7 +164,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "q3":
         user_profile.setdefault(user_id, {})["company"] = update.message.text
         user_state[user_id] = "q4"
-        await update.message.reply_text("🧠 Есть ли у тебя опыт в тендерах? (да / нет / немного)")
+        experience_keyboard = ReplyKeyboardMarkup(
+            [["❌ Нет опыта", "🌱 Немного", "✅ Есть опыт"]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+        await update.message.reply_text("🧠 Есть ли у тебя опыт в тендерах?", reply_markup=experience_keyboard)
         return
 
     if state == "q4":

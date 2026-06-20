@@ -115,6 +115,7 @@ def save_profiles():
 user_histories = {}
 user_state = {}
 user_profile = load_profiles()
+user_tender_results = {}
 
 def get_status(count):
     if count >= 20:
@@ -270,6 +271,68 @@ def get_tender_advice_by_amount(amount, profile):
         f"— {why}\n\n"
         f"📌 {company_tip}\n\n"
         f"🔍 Ищи на zakupki.gov.ru с фильтром НМЦ до {fmt}₽"
+    )
+
+async def search_tenders_by_ai(amount, profile):
+    company = profile.get("company", "не указана")
+    experience = profile.get("experience", "нет")
+    country = profile.get("country", "Россия")
+    fmt = f"{amount:,}".replace(",", " ")
+    prompt = f"""Ты — эксперт по государственным закупкам России (44-ФЗ).
+
+Сгенерируй 4 реалистичных тендера с суммой до {fmt}₽ для участника со следующим профилем:
+- Страна: {country}
+- Тип компании: {company}
+- Опыт: {experience}
+
+Верни ТОЛЬКО валидный JSON-массив (без пояснений, без markdown) из 4 объектов:
+[
+  {{
+    "title": "Краткое название лота (до 50 символов)",
+    "number": "номер закупки в формате 0000000000000000000",
+    "customer": "Название заказчика",
+    "amount": числовая сумма без символов,
+    "region": "Регион",
+    "deadline": "дата в формате ДД.ММ.ГГГГ",
+    "description": "Подробное описание работ/услуг (3-4 предложения)",
+    "requirements": "Требования к участнику (2-3 пункта)"
+  }}
+]"""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7
+    )
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw.strip())
+
+def tender_results_inline_kb(tenders, show_back=True):
+    buttons = []
+    for i, t in enumerate(tenders):
+        title = t["title"][:40] + ("…" if len(t["title"]) > 40 else "")
+        buttons.append([InlineKeyboardButton(f"📋 {title}", callback_data=f"tender_result_{i}")])
+    if show_back:
+        buttons.append([InlineKeyboardButton("🔄 Найти другие", callback_data="tender_choose_again")])
+        buttons.append([InlineKeyboardButton("⬅️ Изменить сумму", callback_data="tender_back")])
+    return InlineKeyboardMarkup(buttons)
+
+def format_tender_card(t, idx, total):
+    amt = f"{int(t['amount']):,}".replace(",", " ")
+    return (
+        f"📋 ТЕНДЕР {idx}/{total}\n\n"
+        f"🏷 {t['title']}\n\n"
+        f"🔢 Номер: {t.get('number', '—')}\n"
+        f"🏛 Заказчик: {t.get('customer', '—')}\n"
+        f"📍 Регион: {t.get('region', '—')}\n"
+        f"💰 НМЦ: {amt}₽\n"
+        f"⏰ Дедлайн: {t.get('deadline', '—')}\n\n"
+        f"📝 Описание:\n{t.get('description', '—')}\n\n"
+        f"✅ Требования:\n{t.get('requirements', '—')}\n\n"
+        f"🔍 Найти на zakupki.gov.ru → поиск по номеру"
     )
 
 def profile_inline_kb(user_id):
@@ -550,11 +613,51 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("tender_budget_"):
         amount = int(data.split("_")[-1])
         profile = user_profile.get(user_id, {})
-        advice = get_tender_advice_by_amount(amount, profile)
-        back_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("⬅️ Выбрать другую сумму", callback_data="tender_choose_again")
-        ]])
-        await query.message.reply_text(advice, reply_markup=back_kb)
+        fmt = f"{amount:,}".replace(",", " ")
+        searching_msg = await query.message.reply_text(f"🔍 Ищу тендеры до {fmt}₽...")
+        try:
+            tenders = await search_tenders_by_ai(amount, profile)
+            user_tender_results[user_id] = tenders
+            await searching_msg.edit_text(
+                f"✅ Найдено {len(tenders)} тендера до {fmt}₽\n\nВыбери, чтобы посмотреть подробности:",
+                reply_markup=tender_results_inline_kb(tenders)
+            )
+        except Exception:
+            await searching_msg.edit_text(
+                "⚠️ Не удалось получить тендеры. Попробуй ещё раз.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔄 Попробовать снова", callback_data=data)
+                ]])
+            )
+
+    elif data.startswith("tender_result_"):
+        idx = int(data.split("_")[-1])
+        tenders = user_tender_results.get(user_id, [])
+        if not tenders or idx >= len(tenders):
+            await query.message.reply_text("⚠️ Тендер не найден. Выполни поиск заново.")
+            return
+        card = format_tender_card(tenders[idx], idx + 1, len(tenders))
+        nav_buttons = []
+        if idx > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Пред.", callback_data=f"tender_result_{idx - 1}"))
+        if idx < len(tenders) - 1:
+            nav_buttons.append(InlineKeyboardButton("След. ➡️", callback_data=f"tender_result_{idx + 1}"))
+        kb = []
+        if nav_buttons:
+            kb.append(nav_buttons)
+        kb.append([InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")])
+        await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data == "tender_show_list":
+        tenders = user_tender_results.get(user_id, [])
+        if not tenders:
+            await query.message.reply_text("⚠️ Список пуст. Выполни поиск заново.",
+                reply_markup=tender_search_inline_kb(user_id))
+            return
+        await query.message.reply_text(
+            "📋 Выбери тендер:",
+            reply_markup=tender_results_inline_kb(tenders)
+        )
 
     elif data in ("tender_back", "tender_choose_again"):
         await query.message.reply_text(

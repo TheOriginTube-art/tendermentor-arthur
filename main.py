@@ -15,10 +15,40 @@ SYSTEM_PROMPT = """
 Ты — ИИ-наставник по тендерному бизнесу.
 Твоя задача: помогать новичкам без опыта создать бизнес с нуля и довести до первого контракта.
 
-Говори просто.
-Давай пошаговые инструкции.
-Не перегружай.
+Говори просто. Давай пошаговые инструкции. Не перегружай.
+
+ВАЖНО — правила форматирования (Telegram Markdown):
+- Заголовки и важные слова: *жирный текст* (одна звёздочка с каждой стороны)
+- Курсив для пояснений и примеров: _курсив_ (нижнее подчёркивание)
+- Никогда не используй ## ### ** __ — они не работают в Telegram
+- Списки делай через цифры или emoji-буллеты (•, ➡️, ✅, 📌)
+- Разделяй блоки пустой строкой для читаемости
 """
+
+import re
+
+def fmt_ai(text):
+    text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
+    text = re.sub(r'__(.+?)__', r'_\1_', text)
+    text = re.sub(r'^#{1,3}\s*(.+)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'`{3}.*?`{3}', '', text, flags=re.DOTALL)
+    for ch in ['[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
+        text = text.replace(ch, ch) 
+    return text.strip()
+
+async def safe_reply(message, text, **kwargs):
+    cleaned = fmt_ai(text)
+    try:
+        await message.reply_text(cleaned, parse_mode='Markdown', **kwargs)
+    except Exception:
+        await message.reply_text(cleaned, **kwargs)
+
+async def safe_edit(message, text, **kwargs):
+    cleaned = fmt_ai(text)
+    try:
+        await message.edit_text(cleaned, parse_mode='Markdown', **kwargs)
+    except Exception:
+        await message.edit_text(cleaned, **kwargs)
 
 def build_system_prompt(user_id):
     profile = user_profile.get(user_id)
@@ -461,7 +491,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             p["analyzed_count"] = p.get("analyzed_count", 0) + 1
             new_status = get_status(p["analyzed_count"])
             save_profiles()
-            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
+            await safe_reply(update.message, response.choices[0].message.content, reply_markup=main_menu(user_id))
             if new_status != old_status:
                 await update.message.reply_text(
                     f"🎉 Поздравляю! Ты получил новый статус: {new_status}",
@@ -544,7 +574,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {"role": "user", "content": text}
                 ]
             )
-            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu(user_id))
+            await safe_reply(update.message, response.choices[0].message.content, reply_markup=main_menu(user_id))
         except RateLimitError:
             await update.message.reply_text(
                 "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
@@ -575,12 +605,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=messages
         )
         answer = response.choices[0].message.content
-        user_histories[user_id].append({"role": "assistant", "content": answer})
+        user_histories[user_id].append({"role": "assistant", "content": fmt_ai(answer)})
 
         if len(user_histories[user_id]) > 40:
             user_histories[user_id] = user_histories[user_id][-40:]
 
-        await update.message.reply_text(answer, reply_markup=main_menu(user_id))
+        await safe_reply(update.message, answer, reply_markup=main_menu(user_id))
 
     except RateLimitError:
         user_histories[user_id].pop()
@@ -694,8 +724,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             done_kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅ Готово", callback_data="stage1_done")
             ]])
-            await loading_msg.edit_text(
-                f"📋 Инструкция по регистрации {company_type}\n\n{instructions}",
+            await safe_edit(
+                loading_msg,
+                f"📋 *Инструкция по регистрации {company_type}*\n\n{instructions}",
                 reply_markup=done_kb
             )
         except Exception:

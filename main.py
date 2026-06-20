@@ -1326,6 +1326,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if url:
             card += f"🔗 [Открыть на zakupki360.ru]({url})"
         kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📄 Детально", callback_data=f"my_tender_detail_{saved_idx}")],
             [InlineKeyboardButton("⬅️ К списку", callback_data="my_tenders")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
         ])
@@ -1333,6 +1334,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(card, parse_mode="Markdown", reply_markup=kb)
         except Exception:
             await query.message.reply_text(card, reply_markup=kb)
+
+    elif data.startswith("my_tender_detail_"):
+        saved_idx = int(data.split("_")[-1])
+        active = get_active_saved_tenders(user_id)
+        if saved_idx >= len(active):
+            await query.message.reply_text("⚠️ Тендер не найден или истёк срок хранения.")
+            return
+        tender = active[saved_idx]["tender"]
+        title_short = tender["title"][:50] + ("…" if len(tender["title"]) > 50 else "")
+        thinking_msg = await query.message.reply_text(
+            f"📄 Изучаю документацию тендера...\n\n_{title_short}_\n\nСобираю данные и готовлю детальный разбор ⏳",
+            parse_mode="Markdown"
+        )
+        try:
+            analysis = await analyze_tender_detailed_by_ai(tender, user_id)
+            back_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"my_tender_view_{saved_idx}")],
+                [InlineKeyboardButton("📁 Мои тендеры", callback_data="my_tenders")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
+            ])
+            await thinking_msg.delete()
+            header = "📄 *ДЕТАЛЬНЫЙ РАЗБОР ТЕНДЕРА*\n\n"
+            full_text = header + analysis
+            if len(full_text) > 4096:
+                await safe_reply(query.message, full_text[:4096], reply_markup=None)
+                await safe_reply(query.message, full_text[4096:], reply_markup=back_kb)
+            else:
+                await safe_reply(query.message, full_text, reply_markup=back_kb)
+        except RateLimitError:
+            await thinking_msg.edit_text("⚠️ Превышен лимит OpenAI. Пополните баланс и попробуйте снова.")
+        except Exception:
+            await thinking_msg.edit_text("⚠️ Не удалось проанализировать тендер. Попробуй ещё раз.")
 
     elif data == "my_tenders_clear":
         user_saved_tenders[user_id] = []

@@ -357,6 +357,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [[company_btn], ["⬅️ Вернуться в меню"]],
             resize_keyboard=True
         )
+        with open("profile_banner.png", "rb") as photo:
+            await update.message.reply_photo(photo)
         await update.message.reply_text(format_profile(user_id), reply_markup=profile_kb)
         return
 

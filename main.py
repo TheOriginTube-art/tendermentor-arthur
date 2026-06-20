@@ -148,7 +148,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "q1":
         user_profile.setdefault(user_id, {})["country"] = update.message.text
         user_state[user_id] = "q2"
-        await update.message.reply_text("💰 Какой у тебя стартовый бюджет? (например: 50 000₽, 100 000₽)")
+        budget_keyboard = ReplyKeyboardMarkup(
+            [["50 000₽", "100 000₽"], ["300 000₽", "500 000₽+"]],
+            resize_keyboard=True, one_time_keyboard=True
+        )
+        await update.message.reply_text("💰 Какой у тебя стартовый бюджет?", reply_markup=budget_keyboard)
         return
 
     if state == "q2":

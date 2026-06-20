@@ -98,44 +98,159 @@ def _parse_amount(text):
     digits = re.sub(r'[^\d]', '', text)
     return int(digits) if digits else 0
 
-def _fetch_real_tenders(query, max_budget, city=None):
-    url = f"https://zakupki360.ru/search?q={requests.utils.quote(query)}&per_page=50"
-    r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
-    soup = BeautifulSoup(r.text, 'html.parser')
+# Маппинг: город/регион → путь на zakupki360.ru
+CITY_REGION_MAP = {
+    "москва": "/region/cfo/moskva",
+    "московская область": "/region/cfo/moskovskaya-oblast",
+    "санкт-петербург": "/region/szfo/sankt-peterburg",
+    "питер": "/region/szfo/sankt-peterburg",
+    "спб": "/region/szfo/sankt-peterburg",
+    "краснодар": "/region/yufo/krasnodarskij-kraj",
+    "краснодарский край": "/region/yufo/krasnodarskij-kraj",
+    "сочи": "/region/yufo/krasnodarskij-kraj",
+    "новороссийск": "/region/yufo/krasnodarskij-kraj",
+    "екатеринбург": "/region/ufo/sverdlovskaya-oblast",
+    "свердловская область": "/region/ufo/sverdlovskaya-oblast",
+    "нижний тагил": "/region/ufo/sverdlovskaya-oblast",
+    "новосибирск": "/region/sfo/novosibirskaya-oblast",
+    "новосибирская область": "/region/sfo/novosibirskaya-oblast",
+    "казань": "/region/pfo/tatarstan-respublika",
+    "татарстан": "/region/pfo/tatarstan-respublika",
+    "набережные челны": "/region/pfo/tatarstan-respublika",
+    "челябинск": "/region/ufo/chelyabinskaya-oblast",
+    "магнитогорск": "/region/ufo/chelyabinskaya-oblast",
+    "челябинская область": "/region/ufo/chelyabinskaya-oblast",
+    "омск": "/region/sfo/omskaya-oblast",
+    "омская область": "/region/sfo/omskaya-oblast",
+    "самара": "/region/pfo/samarskaya-oblast",
+    "тольятти": "/region/pfo/samarskaya-oblast",
+    "самарская область": "/region/pfo/samarskaya-oblast",
+    "ростов": "/region/yufo/rostovskaya-oblast",
+    "ростов-на-дону": "/region/yufo/rostovskaya-oblast",
+    "ростовская область": "/region/yufo/rostovskaya-oblast",
+    "уфа": "/region/pfo/bashkortostan-respublika",
+    "башкортостан": "/region/pfo/bashkortostan-respublika",
+    "пермь": "/region/pfo/permskij-kraj",
+    "пермский край": "/region/pfo/permskij-kraj",
+    "воронеж": "/region/cfo/voronezhskaya-oblast",
+    "волгоград": "/region/yufo/volgogradskaya-oblast",
+    "красноярск": "/region/sfo/krasnoyarskij-kraj",
+    "красноярский край": "/region/sfo/krasnoyarskij-kraj",
+    "саратов": "/region/pfo/saratovskaya-oblast",
+    "тюмень": "/region/ufo/tyumenskaya-oblast",
+    "тюменская область": "/region/ufo/tyumenskaya-oblast",
+    "сургут": "/region/ufo/hmao",
+    "иркутск": "/region/sfo/irkutskaya-oblast",
+    "иркутская область": "/region/sfo/irkutskaya-oblast",
+    "барнаул": "/region/sfo/altajskij-kraj",
+    "алтайский край": "/region/sfo/altajskij-kraj",
+    "ульяновск": "/region/pfo/ulyanovskaya-oblast",
+    "хабаровск": "/region/dfo/habarovskij-kraj",
+    "владивосток": "/region/dfo/primorskij-kraj",
+    "приморский край": "/region/dfo/primorskij-kraj",
+    "ярославль": "/region/cfo/yaroslavskaya-oblast",
+    "томск": "/region/sfo/tomskaya-oblast",
+    "оренбург": "/region/pfo/orenburgskaya-oblast",
+    "кемерово": "/region/sfo/kemerovskaya-oblast",
+    "новокузнецк": "/region/sfo/kemerovskaya-oblast",
+    "рязань": "/region/cfo/ryazanskaya-oblast",
+    "астрахань": "/region/yufo/astrahanskaya-oblast",
+    "пенза": "/region/pfo/penzenskaya-oblast",
+    "липецк": "/region/cfo/lipetskaya-oblast",
+    "тула": "/region/cfo/tulskaya-oblast",
+    "киров": "/region/pfo/kirovskaya-oblast",
+    "чебоксары": "/region/pfo/chuvashiya",
+    "курск": "/region/cfo/kurskaya-oblast",
+    "белгород": "/region/cfo/belgorodskaya-oblast",
+    "нижний новгород": "/region/pfo/nizhegorodskaya-oblast",
+    "ижевск": "/region/pfo/udmurtskaya-respublika",
+    "махачкала": "/region/skfo/dagestan-respublika",
+    "ставрополь": "/region/skfo/stavropolskij-kraj",
+    "ставропольский край": "/region/skfo/stavropolskij-kraj",
+    "калининград": "/region/szfo/kaliningradskaya-oblast",
+    "мурманск": "/region/szfo/murmanskaya-oblast",
+    "вологда": "/region/szfo/vologodskaya-oblast",
+    "смоленск": "/region/cfo/smolenskaya-oblast",
+    "тамбов": "/region/cfo/tambovskaya-oblast",
+    "брянск": "/region/cfo/bryanskaya-oblast",
+    "иваново": "/region/cfo/ivanovskaya-oblast",
+    "тверь": "/region/cfo/tverskaya-oblast",
+    "владимир": "/region/cfo/vladimirskaya-oblast",
+    "калуга": "/region/cfo/kaluzhskaya-oblast",
+    "кострома": "/region/cfo/kostromskaya-oblast",
+    "орёл": "/region/cfo/orlovskaya-oblast",
+    "орел": "/region/cfo/orlovskaya-oblast",
+    "псков": "/region/szfo/pskovskaya-oblast",
+    "великий новгород": "/region/szfo/novgorodskaya-oblast",
+    "чита": "/region/sfo/zabajkalskij-kraj",
+    "улан-удэ": "/region/sfo/buryatiya-respublika",
+    "якутск": "/region/dfo/yakutiya",
+    "магадан": "/region/dfo/magadanskaya-oblast",
+    "южно-сахалинск": "/region/dfo/sahalinskaya-oblast",
+    "симферополь": "/region/yufo/krym-respublika",
+    "крым": "/region/yufo/krym-respublika",
+    "севастополь": "/region/ufo/sevastopol",
+    "горно-алтайск": "/region/sfo/altaj-respublika",
+    "абакан": "/region/sfo/hakasiya-respublika",
+    "грозный": "/region/skfo/chechenskaya-respublika",
+    "нальчик": "/region/skfo/kabardino-balkarskaya-respublika",
+    "владикавказ": "/region/skfo/severnaya-osetiya",
+    "майкоп": "/region/yufo/adygeya-respublika",
+    "петрозаводск": "/region/szfo/kareliya-respublika",
+    "сыктывкар": "/region/szfo/komi-respublika",
+    "тюмень": "/region/ufo/tyumenskaya-oblast",
+    "курган": "/region/ufo/kurganskaya-oblast",
+    "благовещенск": "/region/dfo/amurskaya-oblast",
+    "хабаровский край": "/region/dfo/habarovskij-kraj",
+}
 
-    tender_links = [
-        (a.get('href', ''), a.get_text().strip())
-        for a in soup.find_all('a', href=True)
-        if '/tender/' in a.get('href', '') and len(a.get_text().strip()) > 10
-    ]
+def _city_to_region_path(city):
+    """Возвращает путь к странице региона на zakupki360.ru или None."""
+    key = city.lower().strip()
+    return CITY_REGION_MAP.get(key)
 
-    lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 3]
-    city_lower = city.lower().strip() if city else None
+def _parse_tender_cards(soup, max_budget, city_lower=None):
+    """Парсит карточки тендеров из BeautifulSoup объекта."""
+    tenders = []
+    seen = set()
+    for a in soup.find_all('a', href=True):
+        href = a.get('href', '')
+        if '/tender/' not in href or href in seen:
+            continue
+        title = a.get_text().strip()
+        if len(title) < 10:
+            continue
+        seen.add(href)
 
-    all_tenders = []
-    for href, title in tender_links:
-        budget_str = None
-        region = None
-        date = None
-        ctx = []
-        for i, line in enumerate(lines):
-            if title[:25] in line:
-                ctx = lines[max(0, i - 8):i + 8]
-                for c in ctx:
-                    if not budget_str and re.search(r'[\d\s]+₽', c):
-                        budget_str = c.strip()
-                    if not date and re.match(r'\d{2}\.\d{2}\.\d{4}', c):
-                        date = c.strip()
-                    if not region and any(w in c.lower() for w in
-                                         ('область', 'край', 'республика', 'округ', 'город', 'г.')):
-                        region = c.strip()
+        card_text = ''
+        node = a.parent
+        for _ in range(6):
+            if node is None:
                 break
+            t = node.get_text(' | ')
+            if '₽' in t and any(w in t.lower() for w in
+                                 ('область', 'край', 'республика', 'округ', 'москва', 'петербург',
+                                  'автономн', 'федеральн')):
+                card_text = t
+                break
+            node = node.parent
+
+        budget_str = region = date = None
+        for part in card_text.split('|'):
+            p = part.strip()
+            if not budget_str and re.search(r'[\d\s]{3,}₽', p):
+                budget_str = p
+            if not date and re.match(r'\d{2}\.\d{2}\.\d{4}', p):
+                date = p
+            if not region and any(w in p.lower() for w in
+                                  ('область', 'край', 'республика', 'округ', 'москва', 'петербург')):
+                region = p
 
         amount = _parse_amount(budget_str) if budget_str else 0
         if max_budget and amount > max_budget:
             continue
 
-        all_tenders.append({
+        tenders.append({
             'title': title,
             'url': 'https://zakupki360.ru' + href,
             'amount': amount,
@@ -143,26 +258,24 @@ def _fetch_real_tenders(query, max_budget, city=None):
             'region': region or '—',
             'date': date or '—',
             'source': 'real',
-            '_ctx': ctx,
         })
+    return tenders
 
-    if city_lower:
-        # Строгая фильтрация: город встречается в регионе, названии или контексте
-        filtered = [
-            t for t in all_tenders
-            if city_lower in t['region'].lower()
-            or city_lower in t['title'].lower()
-            or any(city_lower in c.lower() for c in t['_ctx'])
-        ]
-        # Если нашли хотя бы 2 — возвращаем только их
-        result = filtered if len(filtered) >= 2 else all_tenders
+def _fetch_real_tenders(query, max_budget, city=None):
+    region_path = _city_to_region_path(city) if city else None
+
+    if region_path:
+        # Поиск строго по региону
+        url = f"https://zakupki360.ru{region_path}?q={requests.utils.quote(query)}&per_page=30"
     else:
-        result = all_tenders
+        # Fallback: общий поиск с городом в запросе
+        q = f"{city} {query}" if city else query
+        url = f"https://zakupki360.ru/search?q={requests.utils.quote(q)}&per_page=30"
 
-    # Убираем вспомогательное поле и обрезаем до 6
-    for t in result:
-        t.pop('_ctx', None)
-    return result[:6]
+    r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    tenders = _parse_tender_cards(soup, max_budget)
+    return tenders[:6]
 
 async def search_tenders_real(amount, profile, query=None, city=None):
     if query is None:

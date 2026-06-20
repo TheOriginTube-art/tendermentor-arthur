@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime, timezone
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
@@ -47,11 +48,30 @@ user_histories = {}
 user_state = {}
 user_profile = load_profiles()
 
+def format_duration(registered_at_str):
+    try:
+        registered_at = datetime.fromisoformat(registered_at_str)
+        now = datetime.now(timezone.utc)
+        delta = now - registered_at
+        days = delta.days
+        hours = delta.seconds // 3600
+        minutes = (delta.seconds % 3600) // 60
+        if days > 0:
+            return f"{days} дн. {hours} ч."
+        elif hours > 0:
+            return f"{hours} ч. {minutes} мин."
+        else:
+            return f"{minutes} мин."
+    except Exception:
+        return "-"
+
 def format_profile(user_id):
     profile = user_profile.get(user_id)
 
     if not profile:
         return "Профиль пуст. Нажми 🚀 Начать"
+
+    duration = format_duration(profile.get("registered_at", ""))
 
     return f"""
 📊 ТВОЙ ПРОФИЛЬ
@@ -63,6 +83,8 @@ def format_profile(user_id):
 🏢 Компания: {profile.get('company', '-')}
 
 🧠 Опыт: {profile.get('experience', '-')}
+
+⏱ Время твоего опыта: {duration}
 
 🎯 Статус: Новичок в тендерах
 """
@@ -103,7 +125,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🚀 начать":
         user_state[user_id] = "q1"
-        user_profile[user_id] = {}
+        user_profile[user_id] = {
+            "registered_at": datetime.now(timezone.utc).isoformat()
+        }
         await update.message.reply_text("В какой стране ты планируешь работать?")
         return
 

@@ -348,6 +348,8 @@ def main_menu(user_id=None):
                 ["📄 Анализ тендера"],
                 ["💬 Спросить ИИ"]
             ]
+            if user_id and get_active_saved_tenders(user_id):
+                keyboard.append(["📁 Мои тендеры"])
         else:
             keyboard.append(["📖 Ознакомиться"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -400,6 +402,8 @@ TENDER_INFO = """
 """
 
 PROFILES_FILE = "profiles.json"
+SAVED_TENDERS_FILE = "saved_tenders.json"
+SAVED_TENDER_TTL_HOURS = 24
 
 def load_profiles():
     if os.path.exists(PROFILES_FILE):
@@ -412,9 +416,47 @@ def save_profiles():
     with open(PROFILES_FILE, "w", encoding="utf-8") as f:
         json.dump({str(k): v for k, v in user_profile.items()}, f, ensure_ascii=False, indent=2)
 
+def load_saved_tenders():
+    if os.path.exists(SAVED_TENDERS_FILE):
+        with open(SAVED_TENDERS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {int(k): v for k, v in data.items()}
+    return {}
+
+def persist_saved_tenders():
+    with open(SAVED_TENDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump({str(k): v for k, v in user_saved_tenders.items()}, f, ensure_ascii=False, indent=2)
+
+def get_active_saved_tenders(user_id):
+    """Возвращает тендеры пользователя, которые ещё не истекли (< 24 ч)."""
+    now = datetime.now(timezone.utc)
+    entries = user_saved_tenders.get(user_id, [])
+    active = []
+    for e in entries:
+        try:
+            saved_at = datetime.fromisoformat(e["saved_at"])
+            if (now - saved_at).total_seconds() < SAVED_TENDER_TTL_HOURS * 3600:
+                active.append(e)
+        except Exception:
+            pass
+    return active
+
+def add_saved_tender(user_id, tender):
+    """Сохраняет тендер для пользователя. Не дублирует по url."""
+    now = datetime.now(timezone.utc).isoformat()
+    entries = user_saved_tenders.get(user_id, [])
+    url = tender.get("url", "")
+    if url and any(e["tender"].get("url") == url for e in entries):
+        return False
+    entries.append({"tender": tender, "saved_at": now, "status": "won"})
+    user_saved_tenders[user_id] = entries
+    persist_saved_tenders()
+    return True
+
 user_histories = {}
 user_state = {}
 user_profile = load_profiles()
+user_saved_tenders = load_saved_tenders()
 user_tender_results = {}
 user_tender_amount = {}
 
@@ -845,6 +887,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пришли текст тендера или описание 📄")
         return
 
+    if text == "📁 мои тендеры":
+        active = get_active_saved_tenders(user_id)
+        if not active:
+            await update.message.reply_text(
+                "📁 У тебя пока нет сохранённых тендеров.\n\n"
+                "Найди тендер, изучи его и нажми *«🚀 Реализовать»* — он сохранится здесь на 24 часа.",
+                parse_mode="Markdown",
+                reply_markup=main_menu(user_id)
+            )
+            return
+        buttons = []
+        for i, entry in enumerate(active):
+            t = entry["tender"]
+            title = t["title"][:38] + ("…" if len(t["title"]) > 38 else "")
+            saved_at = datetime.fromisoformat(entry["saved_at"])
+            now = datetime.now(timezone.utc)
+            remaining_h = int(SAVED_TENDER_TTL_HOURS - (now - saved_at).total_seconds() / 3600)
+            label = f"🏆 {title} ({remaining_h}ч)"
+            buttons.append([InlineKeyboardButton(label, callback_data=f"my_tender_view_{i}")])
+        buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
+        await update.message.reply_text(
+            f"📁 *МОИ ТЕНДЕРЫ* — {len(active)} шт.\n\nНажми на тендер для просмотра:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
+
     if state == "chat":
         try:
             response = client.chat.completions.create(
@@ -1010,6 +1079,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🤖 Разобрать тендер", callback_data=f"tender_analyze_{idx}"),
             InlineKeyboardButton("📄 Детально", callback_data=f"tender_detail_{idx}"),
         ])
+        kb.append([InlineKeyboardButton("🚀 Реализовать", callback_data=f"tender_realize_{idx}")])
         kb.append([InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")])
         kb.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
         await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb))
@@ -1159,6 +1229,114 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "💰 Выбери максимальную сумму тендера:",
                 reply_markup=tender_search_inline_kb(user_id)
             )
+
+    elif data.startswith("tender_realize_"):
+        idx = int(data.split("_")[-1])
+        tenders = user_tender_results.get(user_id, [])
+        if not tenders or idx >= len(tenders):
+            await query.message.reply_text("⚠️ Тендер не найден. Выполни поиск заново.")
+            return
+        tender = tenders[idx]
+        is_new = add_saved_tender(user_id, tender)
+        title = tender["title"][:60] + ("…" if len(tender["title"]) > 60 else "")
+        if is_new:
+            saved_msg = (
+                f"🏆 *ТЕНДЕР СОХРАНЁН*\n\n"
+                f"_{title}_\n\n"
+                f"💾 Тендер добавлен в *«Мои тендеры»* и будет доступен *24 часа*.\n"
+                f"Ты найдёшь его в главном меню → 📁 Мои тендеры.\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🚀 *ЧТО ДАЛЬШЕ?*\n\n"
+                f"1️⃣ Изучи конкурсную документацию полностью\n"
+                f"2️⃣ Подготовь все документы заранее (не в последний день)\n"
+                f"3️⃣ Внеси обеспечение заявки на площадку\n"
+                f"4️⃣ Подай заявку строго до дедлайна\n"
+                f"5️⃣ Участвуй в торгах — снижай цену пошагово\n"
+                f"6️⃣ После победы — подпиши контракт и внеси обеспечение исполнения\n\n"
+                f"💡 Используй *«📄 Детально»* для пошагового плана по этому тендеру."
+            )
+        else:
+            saved_msg = (
+                f"✅ Этот тендер уже есть в *«Мои тендеры»*\n\n"
+                f"_{title}_\n\n"
+                f"Найди его в главном меню → 📁 Мои тендеры."
+            )
+        back_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📁 Мои тендеры", callback_data="my_tenders")],
+            [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"tender_result_{idx}")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
+        ])
+        await safe_reply(query.message, saved_msg, reply_markup=back_kb)
+
+    elif data == "my_tenders":
+        active = get_active_saved_tenders(user_id)
+        if not active:
+            await query.message.reply_text(
+                "📁 У тебя пока нет сохранённых тендеров.\n\n"
+                "Нажми *«🚀 Реализовать»* на карточке тендера, чтобы сохранить его.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🎯 Найти тендер", callback_data="tender_find")
+                ]])
+            )
+            return
+        buttons = []
+        for i, entry in enumerate(active):
+            t = entry["tender"]
+            title = t["title"][:38] + ("…" if len(t["title"]) > 38 else "")
+            saved_at = datetime.fromisoformat(entry["saved_at"])
+            now = datetime.now(timezone.utc)
+            remaining_h = int(SAVED_TENDER_TTL_HOURS - (now - saved_at).total_seconds() / 3600)
+            label = f"🏆 {title} ({remaining_h}ч)"
+            buttons.append([InlineKeyboardButton(label, callback_data=f"my_tender_view_{i}")])
+        buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
+        await query.message.reply_text(
+            f"📁 *МОИ ТЕНДЕРЫ* — {len(active)} шт.\n\n"
+            f"Тендеры хранятся 24 часа. Нажми на тендер для просмотра:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    elif data.startswith("my_tender_view_"):
+        saved_idx = int(data.split("_")[-1])
+        active = get_active_saved_tenders(user_id)
+        if saved_idx >= len(active):
+            await query.message.reply_text("⚠️ Тендер не найден или истёк срок хранения.")
+            return
+        entry = active[saved_idx]
+        t = entry["tender"]
+        saved_at = datetime.fromisoformat(entry["saved_at"])
+        now = datetime.now(timezone.utc)
+        remaining_h = int(SAVED_TENDER_TTL_HOURS - (now - saved_at).total_seconds() / 3600)
+        title = t.get("title", "—")
+        budget = t.get("budget_str", "—")
+        region = t.get("region", "—")
+        date = t.get("date", "—")
+        url = t.get("url", "")
+        card = (
+            f"🏆 *ВЫИГРАННЫЙ ТЕНДЕР*\n\n"
+            f"📌 {title}\n\n"
+            f"💰 Сумма: {budget}\n"
+            f"📍 Регион: {region}\n"
+            f"📅 Дата: {date}\n\n"
+            f"⏳ Хранится ещё: ~{remaining_h} ч.\n"
+        )
+        if url:
+            card += f"🔗 [Открыть на zakupki360.ru]({url})"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ К списку", callback_data="my_tenders")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")],
+        ])
+        try:
+            await query.message.reply_text(card, parse_mode="Markdown", reply_markup=kb)
+        except Exception:
+            await query.message.reply_text(card, reply_markup=kb)
+
+    elif data == "tender_find":
+        await query.message.reply_text(
+            "💰 Выбери максимальную сумму тендера:",
+            reply_markup=tender_search_inline_kb(user_id)
+        )
 
     elif data == "tender_back":
         await query.message.reply_text(

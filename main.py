@@ -169,6 +169,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пришли текст тендера или описание 📄")
         return
 
+    if state == "chat":
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text}
+                ]
+            )
+            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu())
+        except RateLimitError:
+            await update.message.reply_text(
+                "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
+                reply_markup=main_menu()
+            )
+        except Exception:
+            await update.message.reply_text(
+                "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
+                reply_markup=main_menu()
+            )
+        user_state[user_id] = None
+        return
+
     if text == "💬 спросить ии":
         user_state[user_id] = "chat"
         await update.message.reply_text("Задай вопрос 👇")

@@ -1,14 +1,18 @@
 import os
+import io
 import json
 import re
 import itertools
 import asyncio
+import tempfile
 from datetime import datetime, timezone, time as dtime
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
 import requests
 from bs4 import BeautifulSoup
+from pdfminer.high_level import extract_text as pdf_extract_text
+import docx as docx_lib
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -375,6 +379,106 @@ def _fetch_tender_page_detailed(url):
         unique_docs = list(dict.fromkeys(docs))  # убрать дубли
         result += f"\n\nДОКУМЕНТЫ ТЕНДЕРА:\n" + '\n'.join(f"• {d}" for d in unique_docs)
     return result
+
+
+# ─── Анализ тендера по ссылке / документу (отдельная функция из меню) ──────
+
+def _fetch_any_url_for_analysis(url: str) -> str:
+    """Скачивает страницу тендера по любому URL и возвращает очищенный текст."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    }
+    r = requests.get(url, headers=headers, timeout=20)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, 'html.parser')
+    # Убираем скрипты, стили, навигацию
+    for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+        tag.decompose()
+    lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 4]
+    # Убираем типичный мусор
+    noise = {'cookie', 'javascript', 'подписаться', 'войти', 'регистрация', 'вход'}
+    cleaned = [l for l in lines if not any(n in l.lower() for n in noise)]
+    return '\n'.join(cleaned[:200])
+
+
+def _extract_text_from_file_bytes(file_bytes: bytes, mime_type: str, file_name: str) -> str:
+    """Извлекает текст из PDF, DOCX или TXT файла."""
+    name_lower = (file_name or '').lower()
+    if mime_type == 'application/pdf' or name_lower.endswith('.pdf'):
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        try:
+            text = pdf_extract_text(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+        return text[:8000]
+    elif (mime_type in ('application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                        'application/msword') or name_lower.endswith(('.docx', '.doc'))):
+        doc = docx_lib.Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return '\n'.join(paragraphs)[:8000]
+    else:
+        # Пробуем как текст
+        try:
+            return file_bytes.decode('utf-8', errors='ignore')[:8000]
+        except Exception:
+            return ''
+
+
+async def _ai_analyze_from_input(content: str, source_label: str, user_id: int) -> str:
+    """GPT-анализ тендера по произвольному тексту (из ссылки или документа)."""
+    prompt = f"""Ты — эксперт по государственным закупкам с 10-летним опытом.
+
+Источник: {source_label}
+
+Содержимое:
+---
+{content[:6000]}
+---
+
+Сделай полный анализ этого тендера. Структура ответа:
+
+📌 *О ЧЁМ ТЕНДЕР*
+Что нужно сделать / поставить — 2-3 предложения простым языком.
+
+💰 *ДЕНЬГИ*
+Начальная цена контракта, порядок оплаты, аванс (если есть).
+
+⏰ *СРОКИ*
+Дедлайн подачи заявки и срок исполнения контракта.
+
+🏛 *ЗАКАЗЧИК*
+Кто заказывает и в каком регионе.
+
+📋 *ЧТО НУЖНО ДЛЯ УЧАСТИЯ*
+Документы, лицензии, СРО, опыт — конкретный список.
+
+💸 *ФИНАНСОВЫЕ ТРЕБОВАНИЯ*
+Обеспечение заявки и контракта (суммы или проценты).
+
+⚠️ *РИСКИ И ПОДВОДНЫЕ КАМНИ*
+3-5 конкретных рисков для новичка.
+
+✅ *СТОИТ ЛИ УЧАСТВОВАТЬ*
+Честная оценка сложности (легко / средне / сложно) и почему.
+
+Пиши чётко, без воды. Используй числа и факты там, где они есть в тексте."""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": build_system_prompt(user_id)},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.4,
+        max_tokens=2000,
+    )
+    return response.choices[0].message.content
 
 def _build_tender_text(tender):
     """Формирует текст тендера для AI из AI-сгенерированного тендера."""
@@ -1141,45 +1245,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    if state == "analyze":
-        prompt = f"""
-Ты эксперт по тендерам.
-
-Проанализируй текст:
-
-{text}
-
-Дай:
-1. Простое объяснение
-2. Требования
-3. Риски
-4. Стоит ли новичку участвовать
-"""
+    if state == "analyze_input":
+        raw_text = update.message.text.strip()
+        # Определяем: ссылка или просто текст
+        url_match = re.search(r'https?://\S+', raw_text)
+        thinking_msg = await update.message.reply_text("🔍 Анализирую тендер, подожди немного...")
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": build_system_prompt(user_id)},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+            if url_match:
+                url = url_match.group(0).rstrip('.,)')
+                loop = asyncio.get_event_loop()
+                content = await loop.run_in_executor(None, _fetch_any_url_for_analysis, url)
+                if not content or len(content) < 50:
+                    await thinking_msg.delete()
+                    await update.message.reply_text(
+                        "⚠️ Не удалось получить содержимое по ссылке.\n\n"
+                        "Попробуй скопировать текст тендера и прислать его напрямую.",
+                        reply_markup=main_menu(user_id)
+                    )
+                    user_state[user_id] = None
+                    return
+                source_label = f"Ссылка: {url}"
+            else:
+                content = raw_text
+                source_label = "Текст тендера"
+
+            result = await _ai_analyze_from_input(content, source_label, user_id)
             p = user_profile.setdefault(user_id, {})
             old_status = get_status(p.get("analyzed_count", 0))
             p["analyzed_count"] = p.get("analyzed_count", 0) + 1
             new_status = get_status(p["analyzed_count"])
             save_profiles()
-            await safe_reply(update.message, response.choices[0].message.content, reply_markup=main_menu(user_id))
+            await thinking_msg.delete()
+            await safe_reply(update.message, result, parse_mode="Markdown", reply_markup=main_menu(user_id))
             if new_status != old_status:
-                await update.message.reply_text(
-                    f"🎉 Поздравляю! Ты получил новый статус: {new_status}",
-                    reply_markup=main_menu(user_id)
-                )
+                await update.message.reply_text(f"🎉 Новый статус: *{new_status}*", parse_mode="Markdown")
         except RateLimitError:
+            await thinking_msg.delete()
             await update.message.reply_text(
-                "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
+                "⚠️ Превышен лимит запросов к OpenAI. Пополните баланс на platform.openai.com.",
                 reply_markup=main_menu(user_id)
             )
         except Exception:
+            await thinking_msg.delete()
             await update.message.reply_text(
                 "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
                 reply_markup=main_menu(user_id)
@@ -1282,8 +1389,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "📄 анализ тендера":
-        user_state[user_id] = "analyze"
-        await update.message.reply_text("Пришли текст тендера или описание 📄")
+        user_state[user_id] = "analyze_input"
+        await update.message.reply_text(
+            "📄 *Анализ тендера*\n\n"
+            "Пришли мне одно из следующего:\n\n"
+            "🔗 *Ссылку* на тендер — с любого сайта (zakupki.gov.ru, zakupki360.ru и др.)\n\n"
+            "📁 *Документ* — PDF, DOCX или TXT файл с тендерной документацией\n\n"
+            "📝 *Текст* — скопируй и вставь описание тендера\n\n"
+            "_ИИ разберёт тендер по всем ключевым параметрам._",
+            parse_mode="Markdown"
+        )
         return
 
     if text == "📁 мои тендеры":
@@ -1889,11 +2004,85 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=tender_search_inline_kb(user_id)
         )
 
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает документы, отправленные в состоянии analyze_input."""
+    user_id = update.message.chat_id
+    if user_state.get(user_id) != "analyze_input":
+        await update.message.reply_text(
+            "📄 Чтобы проанализировать документ, сначала нажми *«📄 Анализ тендера»* в меню.",
+            parse_mode="Markdown"
+        )
+        return
+
+    doc = update.message.document
+    if not doc:
+        return
+
+    file_name = doc.file_name or ""
+    mime_type = doc.mime_type or ""
+    allowed_exts = ('.pdf', '.docx', '.doc', '.txt')
+    if not any(file_name.lower().endswith(ext) for ext in allowed_exts):
+        await update.message.reply_text(
+            "⚠️ Поддерживаются файлы: *PDF, DOCX, DOC, TXT*\n\nПришли документ в одном из этих форматов.",
+            parse_mode="Markdown"
+        )
+        return
+
+    thinking_msg = await update.message.reply_text("📂 Читаю документ и анализирую тендер...")
+    try:
+        tg_file = await context.bot.get_file(doc.file_id)
+        file_bytes_io = await tg_file.download_as_bytearray()
+        file_bytes = bytes(file_bytes_io)
+
+        loop = asyncio.get_event_loop()
+        content = await loop.run_in_executor(
+            None, _extract_text_from_file_bytes, file_bytes, mime_type, file_name
+        )
+
+        if not content or len(content.strip()) < 50:
+            await thinking_msg.delete()
+            await update.message.reply_text(
+                "⚠️ Не удалось извлечь текст из документа.\n\n"
+                "Попробуй скопировать текст тендера и прислать его напрямую.",
+                reply_markup=main_menu(user_id)
+            )
+            user_state[user_id] = None
+            return
+
+        result = await _ai_analyze_from_input(content, f"Документ: {file_name}", user_id)
+
+        p = user_profile.setdefault(user_id, {})
+        old_status = get_status(p.get("analyzed_count", 0))
+        p["analyzed_count"] = p.get("analyzed_count", 0) + 1
+        new_status = get_status(p["analyzed_count"])
+        save_profiles()
+
+        await thinking_msg.delete()
+        await safe_reply(update.message, result, parse_mode="Markdown", reply_markup=main_menu(user_id))
+        if new_status != old_status:
+            await update.message.reply_text(f"🎉 Новый статус: *{new_status}*", parse_mode="Markdown")
+
+    except RateLimitError:
+        await thinking_msg.delete()
+        await update.message.reply_text(
+            "⚠️ Превышен лимит запросов к OpenAI. Пополните баланс на platform.openai.com.",
+            reply_markup=main_menu(user_id)
+        )
+    except Exception:
+        await thinking_msg.delete()
+        await update.message.reply_text(
+            "⚠️ Что-то пошло не так при обработке файла. Попробуй ещё раз.",
+            reply_markup=main_menu(user_id)
+        )
+    user_state[user_id] = None
+
+
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reset", reset))
 app.add_handler(CallbackQueryHandler(callback_handler))
+app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 app.job_queue.run_daily(send_daily_tip, time=dtime(hour=6, minute=0, tzinfo=timezone.utc))

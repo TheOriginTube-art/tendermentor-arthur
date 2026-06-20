@@ -19,6 +19,20 @@ SYSTEM_PROMPT = """
 Не перегружай.
 """
 
+def build_system_prompt(user_id):
+    profile = user_profile.get(user_id)
+    if not profile:
+        return SYSTEM_PROMPT
+    return SYSTEM_PROMPT + f"""
+Профиль пользователя:
+- Страна: {profile.get('country', '-')}
+- Бюджет: {profile.get('budget', '-')}
+- Компания: {profile.get('company', '-')}
+- Опыт: {profile.get('experience', '-')}
+
+Учитывай эти данные при ответах. Давай советы, подходящие именно этому пользователю.
+"""
+
 def main_menu(user_id=None):
     keyboard = []
     if user_id is None or not user_profile.get(user_id):
@@ -228,7 +242,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": build_system_prompt(user_id)},
                     {"role": "user", "content": prompt}
                 ]
             )
@@ -265,7 +279,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": build_system_prompt(user_id)},
                     {"role": "user", "content": text}
                 ]
             )
@@ -292,7 +306,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_histories[user_id] = []
 
     user_histories[user_id].append({"role": "user", "content": text})
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
+    messages = [{"role": "system", "content": build_system_prompt(user_id)}] + user_histories[user_id]
 
     try:
         response = client.chat.completions.create(

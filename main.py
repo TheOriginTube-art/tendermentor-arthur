@@ -107,7 +107,7 @@ def get_tender_advice(profile):
 - небольшие контракты
 
 📌 Следующий шаг:
-Найти тендер до 10 000–20 000€
+Найти тендер до 500 000–1 000 000₽
 """
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,7 +139,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_profile[user_id] = {
             "registered_at": datetime.now(timezone.utc).isoformat()
         }
-        await update.message.reply_text("В какой стране ты планируешь работать?")
+        country_keyboard = ReplyKeyboardMarkup([["🇷🇺 Россия"]], resize_keyboard=True, one_time_keyboard=True)
+        await update.message.reply_text("В какой стране ты планируешь работать?", reply_markup=country_keyboard)
         return
 
     state = user_state.get(user_id)
@@ -147,7 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "q1":
         user_profile.setdefault(user_id, {})["country"] = update.message.text
         user_state[user_id] = "q2"
-        await update.message.reply_text("💰 Какой у тебя стартовый бюджет? (например: 500€, 1000€)")
+        await update.message.reply_text("💰 Какой у тебя стартовый бюджет? (например: 50 000₽, 100 000₽)")
         return
 
     if state == "q2":

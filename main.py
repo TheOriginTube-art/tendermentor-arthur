@@ -403,7 +403,7 @@ TENDER_INFO = """
 
 PROFILES_FILE = "profiles.json"
 SAVED_TENDERS_FILE = "saved_tenders.json"
-SAVED_TENDER_TTL_HOURS = 24
+SAVED_TENDER_TTL_HOURS = 72
 
 def load_profiles():
     if os.path.exists(PROFILES_FILE):
@@ -906,6 +906,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             remaining_h = int(SAVED_TENDER_TTL_HOURS - (now - saved_at).total_seconds() / 3600)
             label = f"🏆 {title} ({remaining_h}ч)"
             buttons.append([InlineKeyboardButton(label, callback_data=f"my_tender_view_{i}")])
+        buttons.append([InlineKeyboardButton("🗑 Очистить список", callback_data="my_tenders_clear")])
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
         await update.message.reply_text(
             f"📁 *МОИ ТЕНДЕРЫ* — {len(active)} шт.\n\nНажми на тендер для просмотра:",
@@ -1289,10 +1290,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             remaining_h = int(SAVED_TENDER_TTL_HOURS - (now - saved_at).total_seconds() / 3600)
             label = f"🏆 {title} ({remaining_h}ч)"
             buttons.append([InlineKeyboardButton(label, callback_data=f"my_tender_view_{i}")])
+        buttons.append([InlineKeyboardButton("🗑 Очистить список", callback_data="my_tenders_clear")])
         buttons.append([InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")])
         await query.message.reply_text(
             f"📁 *МОИ ТЕНДЕРЫ* — {len(active)} шт.\n\n"
-            f"Тендеры хранятся 24 часа. Нажми на тендер для просмотра:",
+            f"Тендеры хранятся 72 часа. Нажми на тендер для просмотра:",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
@@ -1331,6 +1333,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(card, parse_mode="Markdown", reply_markup=kb)
         except Exception:
             await query.message.reply_text(card, reply_markup=kb)
+
+    elif data == "my_tenders_clear":
+        user_saved_tenders[user_id] = []
+        persist_saved_tenders()
+        await query.message.reply_text(
+            "🗑 Список тендеров очищен.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🏠 Главное меню", callback_data="menu_home")
+            ]])
+        )
 
     elif data == "tender_find":
         await query.message.reply_text(

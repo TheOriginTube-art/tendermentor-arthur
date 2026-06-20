@@ -98,8 +98,8 @@ def _parse_amount(text):
     digits = re.sub(r'[^\d]', '', text)
     return int(digits) if digits else 0
 
-def _fetch_real_tenders(query, max_budget):
-    url = f"https://zakupki360.ru/search?q={requests.utils.quote(query)}&per_page=30"
+def _fetch_real_tenders(query, max_budget, city=None):
+    url = f"https://zakupki360.ru/search?q={requests.utils.quote(query)}&per_page=50"
     r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
     soup = BeautifulSoup(r.text, 'html.parser')
 
@@ -110,12 +110,14 @@ def _fetch_real_tenders(query, max_budget):
     ]
 
     lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 3]
+    city_lower = city.lower().strip() if city else None
 
-    tenders = []
+    all_tenders = []
     for href, title in tender_links:
         budget_str = None
         region = None
         date = None
+        ctx = []
         for i, line in enumerate(lines):
             if title[:25] in line:
                 ctx = lines[max(0, i - 8):i + 8]
@@ -124,8 +126,8 @@ def _fetch_real_tenders(query, max_budget):
                         budget_str = c.strip()
                     if not date and re.match(r'\d{2}\.\d{2}\.\d{4}', c):
                         date = c.strip()
-                    if not region and ('область' in c.lower() or 'край' in c.lower()
-                                       or 'республика' in c.lower() or 'округ' in c.lower()):
+                    if not region and any(w in c.lower() for w in
+                                         ('область', 'край', 'республика', 'округ', 'город', 'г.')):
                         region = c.strip()
                 break
 
@@ -133,7 +135,7 @@ def _fetch_real_tenders(query, max_budget):
         if max_budget and amount > max_budget:
             continue
 
-        tenders.append({
+        all_tenders.append({
             'title': title,
             'url': 'https://zakupki360.ru' + href,
             'amount': amount,
@@ -141,11 +143,26 @@ def _fetch_real_tenders(query, max_budget):
             'region': region or '—',
             'date': date or '—',
             'source': 'real',
+            '_ctx': ctx,
         })
-        if len(tenders) >= 6:
-            break
 
-    return tenders
+    if city_lower:
+        # Строгая фильтрация: город встречается в регионе, названии или контексте
+        filtered = [
+            t for t in all_tenders
+            if city_lower in t['region'].lower()
+            or city_lower in t['title'].lower()
+            or any(city_lower in c.lower() for c in t['_ctx'])
+        ]
+        # Если нашли хотя бы 2 — возвращаем только их
+        result = filtered if len(filtered) >= 2 else all_tenders
+    else:
+        result = all_tenders
+
+    # Убираем вспомогательное поле и обрезаем до 6
+    for t in result:
+        t.pop('_ctx', None)
+    return result[:6]
 
 async def search_tenders_real(amount, profile, query=None, city=None):
     if query is None:
@@ -153,7 +170,7 @@ async def search_tenders_real(amount, profile, query=None, city=None):
     if city:
         query = f"{city} {query}"
     loop = asyncio.get_event_loop()
-    tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount)
+    tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount, city)
     return tenders
 
 def _fetch_tender_page(url):

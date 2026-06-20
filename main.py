@@ -28,6 +28,8 @@ def main_menu():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 user_histories = {}
+user_state = {}
+user_profile = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -38,49 +40,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_text = update.message.text
+    user_id = update.message.chat_id
+    text = update.message.text.lower()
 
-    if user_text == "🚀 Начать":
-        user_histories[user_id] = []
-        await update.message.reply_text(
-            "Отлично! Начнём с нуля.\n\nРасскажи немного о себе: есть ли у тебя уже ИП или ООО?",
-            reply_markup=main_menu()
-        )
+    if text == "🚀 начать":
+        user_state[user_id] = "q1"
+        await update.message.reply_text("В какой стране ты планируешь работать?")
         return
 
-    if user_text == "📊 Мой профиль":
-        await update.message.reply_text(
-            "Раздел профиля в разработке. Скоро здесь появится информация о твоих тендерах и прогрессе.",
-            reply_markup=main_menu()
-        )
+    if text == "📊 мой профиль":
+        profile = user_profile.get(user_id, {})
+        await update.message.reply_text(f"Твой профиль:\n{profile}")
         return
 
-    if user_text == "🎯 Найти тендер":
-        await update.message.reply_text(
-            "Опиши, в какой сфере хочешь найти тендер — и я помогу разобраться с поиском.",
-            reply_markup=main_menu()
-        )
+    if text == "🎯 найти тендер":
+        await update.message.reply_text("Я скоро буду подбирать тендеры 👍")
         return
 
-    if user_text == "📄 Анализ тендера":
-        await update.message.reply_text(
-            "Вставь ссылку на тендер или скопируй его описание — разберём вместе.",
-            reply_markup=main_menu()
-        )
+    if text == "📄 анализ тендера":
+        await update.message.reply_text("Пришли мне текст или файл тендера 📄")
         return
 
-    if user_text == "💬 Спросить ИИ":
-        await update.message.reply_text(
-            "Задай любой вопрос по тендерному бизнесу — отвечу.",
-            reply_markup=main_menu()
-        )
+    if text == "💬 спросить ии":
+        await update.message.reply_text("Напиши свой вопрос 👇")
         return
 
     if user_id not in user_histories:
         user_histories[user_id] = []
 
-    user_histories[user_id].append({"role": "user", "content": user_text})
+    user_histories[user_id].append({"role": "user", "content": text})
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + user_histories[user_id]
 
     try:

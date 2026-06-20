@@ -129,7 +129,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "📄 анализ тендера":
-        await update.message.reply_text("Пришли мне текст или файл тендера 📄")
+        user_state[user_id] = "analyze"
+        await update.message.reply_text("Пришли текст тендера или описание 📄")
         return
 
     if text == "💬 спросить ии":

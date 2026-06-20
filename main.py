@@ -1,6 +1,7 @@
 import os
 import json
-from datetime import datetime, timezone
+import itertools
+from datetime import datetime, timezone, time as dtime
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI, RateLimitError, APIError
@@ -362,10 +363,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=main_menu(user_id)
         )
 
+DAILY_TIPS = [
+    "💡 Совет дня: Начни с тендеров до 500 000₽ — меньше конкурентов и проще документация.",
+    "💡 Совет дня: Зарегистрируйся на портале zakupki.gov.ru — там публикуются все госзакупки России.",
+    "💡 Совет дня: Читай требования к участнику внимательно — часто отказывают из-за мелких ошибок в документах.",
+    "💡 Совет дня: ИП может участвовать в тендерах наравне с ООО — не жди открытия компании.",
+    "💡 Совет дня: Первый тендер лучше выбирать в знакомой сфере — это повышает шансы на победу.",
+    "💡 Совет дня: Обеспечение заявки — это залог серьёзности. Обычно 0.5–5% от суммы контракта.",
+    "💡 Совет дня: Сохраняй все документы по выигранным тендерам — они пригодятся для будущих заявок.",
+    "💡 Совет дня: Используй 44-ФЗ для госзакупок и 223-ФЗ для закупок компаний с госучастием.",
+]
+
+tip_cycle = itertools.cycle(DAILY_TIPS)
+
+async def send_daily_tip(context):
+    tip = next(tip_cycle)
+    for user_id in list(user_profile.keys()):
+        try:
+            await context.bot.send_message(chat_id=user_id, text=tip)
+        except Exception:
+            pass
+
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("reset", reset))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+app.job_queue.run_daily(send_daily_tip, time=dtime(hour=6, minute=0, tzinfo=timezone.utc))
 
 app.run_polling()

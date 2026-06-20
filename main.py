@@ -57,6 +57,30 @@ PARSE_HEADERS = {
     'Accept-Language': 'ru-RU,ru;q=0.9',
 }
 
+TENDER_TOPICS = {
+    "clean":     ("🧹 Уборка и клининг",      "уборка клининг помещений"),
+    "garden":    ("🌿 Благоустройство",        "благоустройство озеленение"),
+    "repair":    ("🔧 Ремонт и строительство", "ремонт строительство"),
+    "supply":    ("📦 Поставка товаров",        "поставка товаров материалов"),
+    "it":        ("🖥 IT и оборудование",       "компьютеры оборудование программное обеспечение"),
+    "transport": ("🚛 Перевозки и логистика",  "транспортные услуги перевозка"),
+    "food":      ("🍽 Питание и продукты",      "питание продукты поставка"),
+    "service":   ("📋 Прочие услуги",           "услуги консультации охрана"),
+}
+
+def tender_topic_inline_kb(amount):
+    fmt = f"{amount:,}".replace(",", " ")
+    buttons = []
+    keys = list(TENDER_TOPICS.keys())
+    for i in range(0, len(keys), 2):
+        row = []
+        for key in keys[i:i+2]:
+            label, _ = TENDER_TOPICS[key]
+            row.append(InlineKeyboardButton(label, callback_data=f"tender_topic_{amount}_{key}"))
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("⬅️ Изменить сумму", callback_data="tender_back")])
+    return InlineKeyboardMarkup(buttons)
+
 def _budget_keyword(amount):
     if amount <= 100000:
         return "уборка помещений благоустройство"
@@ -122,8 +146,9 @@ def _fetch_real_tenders(query, max_budget):
 
     return tenders
 
-async def search_tenders_real(amount, profile):
-    query = _budget_keyword(amount)
+async def search_tenders_real(amount, profile, query=None):
+    if query is None:
+        query = _budget_keyword(amount)
     loop = asyncio.get_event_loop()
     tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount)
     return tenders
@@ -227,6 +252,7 @@ user_histories = {}
 user_state = {}
 user_profile = load_profiles()
 user_tender_results = {}
+user_tender_amount = {}
 
 def get_status(count):
     if count >= 20:
@@ -758,11 +784,25 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("tender_budget_"):
         amount = int(data.split("_")[-1])
+        user_tender_amount[user_id] = amount
+        fmt = f"{amount:,}".replace(",", " ")
+        await query.message.reply_text(
+            f"💰 Сумма: до {fmt}₽\n\n🗂 Теперь выбери тему тендера:",
+            reply_markup=tender_topic_inline_kb(amount)
+        )
+
+    elif data.startswith("tender_topic_"):
+        parts = data.split("_")
+        amount = int(parts[2])
+        topic_key = parts[3]
         profile = user_profile.get(user_id, {})
         fmt = f"{amount:,}".replace(",", " ")
-        searching_msg = await query.message.reply_text(f"🔍 Ищу реальные тендеры до {fmt}₽...")
+        topic_label, topic_query = TENDER_TOPICS.get(topic_key, ("", _budget_keyword(amount)))
+        searching_msg = await query.message.reply_text(
+            f"🔍 Ищу тендеры «{topic_label}» до {fmt}₽..."
+        )
         try:
-            tenders = await search_tenders_real(amount, profile)
+            tenders = await search_tenders_real(amount, profile, query=topic_query)
             source_label = "🌐 реальных"
             if not tenders:
                 await searching_msg.edit_text("⏳ Парсинг не дал результатов, генерирую через ИИ...")
@@ -770,7 +810,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 source_label = "🤖 (ИИ-примеры)"
             user_tender_results[user_id] = tenders
             await searching_msg.edit_text(
-                f"✅ Найдено {len(tenders)} {source_label} тендера до {fmt}₽\n\nВыбери, чтобы посмотреть подробности:",
+                f"✅ Найдено {len(tenders)} {source_label} тендера\n"
+                f"Тема: {topic_label} | до {fmt}₽\n\n"
+                f"Выбери, чтобы посмотреть подробности:",
                 reply_markup=tender_results_inline_kb(tenders)
             )
         except Exception:
@@ -862,7 +904,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await query.message.edit_reply_markup(reply_markup=kb)
 
-    elif data in ("tender_back", "tender_choose_again"):
+    elif data == "tender_choose_again":
+        amount = user_tender_amount.get(user_id)
+        if amount:
+            fmt = f"{amount:,}".replace(",", " ")
+            await query.message.reply_text(
+                f"💰 Сумма: до {fmt}₽\n\n🗂 Выбери другую тему тендера:",
+                reply_markup=tender_topic_inline_kb(amount)
+            )
+        else:
+            await query.message.reply_text(
+                "💰 Выбери максимальную сумму тендера:",
+                reply_markup=tender_search_inline_kb(user_id)
+            )
+
+    elif data == "tender_back":
         await query.message.reply_text(
             "💰 Выбери максимальную сумму тендера:",
             reply_markup=tender_search_inline_kb(user_id)

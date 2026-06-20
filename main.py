@@ -119,6 +119,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if state == "analyze":
+        prompt = f"""
+Ты эксперт по тендерам.
+
+Проанализируй текст:
+
+{text}
+
+Дай:
+1. Простое объяснение
+2. Требования
+3. Риски
+4. Стоит ли новичку участвовать
+"""
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            await update.message.reply_text(response.choices[0].message.content, reply_markup=main_menu())
+        except RateLimitError:
+            await update.message.reply_text(
+                "⚠️ Превышен лимит запросов к OpenAI. Пожалуйста, пополните баланс на platform.openai.com.",
+                reply_markup=main_menu()
+            )
+        except Exception:
+            await update.message.reply_text(
+                "⚠️ Что-то пошло не так. Попробуйте ещё раз чуть позже.",
+                reply_markup=main_menu()
+            )
+        user_state[user_id] = None
+        return
+
     if text == "📊 мой профиль":
         await update.message.reply_text(format_profile(user_id), reply_markup=main_menu())
         return

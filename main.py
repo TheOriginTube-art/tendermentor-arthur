@@ -153,6 +153,63 @@ async def search_tenders_real(amount, profile, query=None):
     tenders = await loop.run_in_executor(None, _fetch_real_tenders, query, amount)
     return tenders
 
+def _fetch_tender_page(url):
+    r = requests.get(url, headers=PARSE_HEADERS, timeout=15)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    lines = [l.strip() for l in soup.get_text('\n').split('\n') if len(l.strip()) > 5]
+    skip = {'Поиск Закупок', 'Регистрация/вход', 'На контроль', 'Подача заявок',
+            'К источнику', 'Мы используем Cookies', 'Карта сайта', 'По отраслям',
+            'По регионам', 'По площадкам', 'По заказчикам', 'По ключевым словам',
+            'Поиск закупок', 'пн-пт с 9:00 до 18:00'}
+    cleaned = [l for l in lines if l not in skip and not l.startswith('info@')
+               and not l.startswith('8(800)') and '░' not in l
+               and 'ИНН' not in l and 'ОГРН' not in l and 'Cookies' not in l]
+    return '\n'.join(cleaned[:80])
+
+async def analyze_tender_by_ai(tender, user_id):
+    if tender.get('source') == 'real' and tender.get('url'):
+        loop = asyncio.get_event_loop()
+        page_text = await loop.run_in_executor(None, _fetch_tender_page, tender['url'])
+    else:
+        page_text = (
+            f"Название: {tender.get('title')}\n"
+            f"Заказчик: {tender.get('customer', '—')}\n"
+            f"Сумма: {tender.get('amount', '—')}₽\n"
+            f"Регион: {tender.get('region', '—')}\n"
+            f"Срок: {tender.get('deadline', '—')}\n"
+            f"Описание: {tender.get('description', '—')}\n"
+            f"Требования: {tender.get('requirements', '—')}"
+        )
+
+    prompt = f"""Ты — эксперт по государственным закупкам, помогающий новичкам.
+
+Вот информация о тендере:
+---
+{page_text}
+---
+
+Объясни этот тендер простым языком. Структура ответа:
+
+1. 📌 О ЧЁМ ТЕНДЕР — что именно нужно сделать/поставить, 2-3 предложения простыми словами
+2. 💰 ДЕНЬГИ — сумма контракта, как она выплачивается
+3. ⏰ СРОКИ — когда подавать заявку, когда нужно выполнить работу
+4. 🏛 КТО ЗАКАЗЧИК — кто нанимает и где находится
+5. 📋 ЧТО НУЖНО ДЛЯ УЧАСТИЯ — документы, лицензии, опыт
+6. ⚠️ РИСКИ — на что обратить внимание новичку
+7. ✅ СТОИТ ЛИ УЧАСТВОВАТЬ — честная оценка: легко/средне/сложно для новичка и почему
+
+Пиши коротко, без канцелярита. Максимум 400 слов."""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": build_system_prompt(user_id)},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.5
+    )
+    return response.choices[0].message.content
+
 def build_system_prompt(user_id):
     profile = user_profile.get(user_id)
     if not profile:
@@ -838,8 +895,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = []
         if nav_buttons:
             kb.append(nav_buttons)
+        kb.append([InlineKeyboardButton("🤖 Разобрать тендер", callback_data=f"tender_analyze_{idx}")])
         kb.append([InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")])
         await query.message.reply_text(card, reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("tender_analyze_"):
+        idx = int(data.split("_")[-1])
+        tenders = user_tender_results.get(user_id, [])
+        if not tenders or idx >= len(tenders):
+            await query.message.reply_text("⚠️ Тендер не найден. Выполни поиск заново.")
+            return
+        tender = tenders[idx]
+        title_short = tender['title'][:50] + ('…' if len(tender['title']) > 50 else '')
+        thinking_msg = await query.message.reply_text(
+            f"🤖 Анализирую тендер...\n\n_{title_short}_\n\nЭто займёт несколько секунд ⏳",
+            parse_mode='Markdown'
+        )
+        try:
+            analysis = await analyze_tender_by_ai(tender, user_id)
+            back_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад к тендеру", callback_data=f"tender_result_{idx}")],
+                [InlineKeyboardButton("📋 К списку тендеров", callback_data="tender_show_list")],
+            ])
+            await thinking_msg.delete()
+            await safe_reply(
+                query.message,
+                f"🤖 *РАЗБОР ТЕНДЕРА*\n\n{analysis}",
+                reply_markup=back_kb
+            )
+        except RateLimitError:
+            await thinking_msg.edit_text("⚠️ Превышен лимит OpenAI. Пополните баланс и попробуйте снова.")
+        except Exception as e:
+            await thinking_msg.edit_text(f"⚠️ Не удалось проанализировать тендер. Попробуй ещё раз.")
 
     elif data == "tender_show_list":
         tenders = user_tender_results.get(user_id, [])

@@ -584,6 +584,10 @@ def add_saved_tender(user_id, tender):
     entries.append({"tender": tender, "saved_at": now, "status": "won"})
     user_saved_tenders[user_id] = entries
     persist_saved_tenders()
+    # Инкрементируем счётчик побед в профиле
+    p = user_profile.setdefault(user_id, {})
+    p["won_count"] = p.get("won_count", 0) + 1
+    save_profiles()
     return True
 
 user_histories = {}
@@ -593,6 +597,12 @@ user_saved_tenders = load_saved_tenders()
 user_tender_results = {}
 user_tender_amount = {}
 user_tender_city = {}
+
+def generate_profile_code(tg_name, user_id):
+    """Генерирует уникальный код: ИмяПользователя#XXXX"""
+    suffix = str(abs(user_id))[-4:].zfill(4)
+    name = (tg_name or "User").strip()
+    return f"{name}#{suffix}"
 
 def get_status(count):
     if count >= 20:
@@ -624,14 +634,22 @@ def format_profile(user_id):
     if not profile:
         return "Профиль пуст. Нажми 🚀 Начать"
 
+    # Ленивая генерация кода профиля для старых аккаунтов
+    if not profile.get("profile_code"):
+        tg_name = profile.get("tg_name", "User")
+        profile["profile_code"] = generate_profile_code(tg_name, user_id)
+        save_profiles()
+
     duration = format_duration(profile.get("registered_at", ""))
     count = profile.get("analyzed_count", 0)
-
+    won = profile.get("won_count", 0)
     status = get_status(count)
+    code = profile.get("profile_code", "—")
 
     city_line = f"\n🏙 Город: {profile.get('city', '-')}\n" if profile.get('city') else "\n🏙 Город: не указан\n"
     return f"""
 📊 ТВОЙ ПРОФИЛЬ
+🆔 Код: `{code}`
 
 🌍 Страна: {profile.get('country', '-')}
 {city_line}
@@ -642,8 +660,9 @@ def format_profile(user_id):
 🧠 Опыт: {profile.get('experience', '-')}
 
 📋 Проанализировано тендеров: {count}
+🏆 Сохранено тендеров: {won}
 
-⏱ Время твоего опыта: {duration}
+⏱ Время в системе: {duration}
 
 🎯 Статус: {status}
 """
@@ -847,6 +866,7 @@ def profile_inline_kb(user_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(company_label, callback_data="profile_edit_company")],
         [InlineKeyboardButton(city_label, callback_data="profile_change_city")],
+        [InlineKeyboardButton("🏆 Топ участников", callback_data="profile_top")],
         [InlineKeyboardButton("⬅️ Вернуться в меню", callback_data="profile_back")],
     ])
 
@@ -876,8 +896,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "🚀 начать":
         user_state[user_id] = "q1"
+        tg_user = update.message.from_user
+        tg_name = (tg_user.username or tg_user.first_name or "User").strip()
+        profile_code = generate_profile_code(tg_name, user_id)
         user_profile[user_id] = {
-            "registered_at": datetime.now(timezone.utc).isoformat()
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+            "tg_name": tg_name,
+            "profile_code": profile_code,
         }
         country_keyboard = ReplyKeyboardMarkup([["🇷🇺 Россия"]], resize_keyboard=True, one_time_keyboard=True)
         await update.message.reply_text("В какой стране ты планируешь работать?", reply_markup=country_keyboard)
@@ -1218,6 +1243,39 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🏙 Напиши название своего города (например: _Москва_, _Краснодар_, _Казань_):",
                 parse_mode="Markdown"
             )
+
+    elif data == "profile_top":
+        # Строим топ по won_count
+        entries = []
+        for uid, prof in user_profile.items():
+            won = prof.get("won_count", 0)
+            code = prof.get("profile_code")
+            if not code:
+                tg_name = prof.get("tg_name", "User")
+                code = generate_profile_code(tg_name, uid)
+            if won > 0:
+                entries.append((won, code))
+        entries.sort(reverse=True)
+
+        medals = ["🥇", "🥈", "🥉"]
+        if not entries:
+            text = "🏆 *ТОП УЧАСТНИКОВ*\n\nПока никто не сохранил тендеры. Стань первым!"
+        else:
+            lines = ["🏆 *ТОП УЧАСТНИКОВ*", "_(по количеству сохранённых тендеров)_\n"]
+            for i, (won, code) in enumerate(entries[:10]):
+                medal = medals[i] if i < 3 else f"{i+1}."
+                is_me = (code == user_profile.get(user_id, {}).get("profile_code"))
+                marker = " ← ты" if is_me else ""
+                lines.append(f"{medal} `{code}` — {won} тенд.{marker}")
+            text = "\n".join(lines)
+
+        back_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("⬅️ Назад в профиль", callback_data="profile_show")
+        ]])
+        await safe_reply(query.message, text, reply_markup=back_kb)
+
+    elif data == "profile_show":
+        await safe_reply(query.message, format_profile(user_id), reply_markup=profile_inline_kb(user_id))
 
     elif data.startswith("tender_budget_"):
         amount = int(data.split("_")[-1])

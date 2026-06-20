@@ -989,7 +989,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
 
     if text == "🚀 начать":
-        user_state[user_id] = "q1"
         tg_user = update.message.from_user
         tg_name = (tg_user.username or tg_user.first_name or "User").strip()
         profile_code = generate_profile_code(tg_name, user_id)
@@ -998,8 +997,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "tg_name": tg_name,
             "profile_code": profile_code,
         }
+        intro_text = (
+            "👋 Привет! Я *TenderStart AI* — твой персональный наставник в мире тендерного бизнеса.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "🤖 *ЧТО Я УМЕЮ?*\n\n"
+            "🎯 *Найти тендер* — подбираю реальные госзакупки под твой бюджет и город прямо с zakupki360.ru\n\n"
+            "📄 *Анализ тендера* — анализирую любой тендер по тексту или документу: риски, требования, шансы на победу\n\n"
+            "📌 *Обучение по этапам* — объясняю как зарегистрировать компанию, получить ЭЦП и выйти на торговые площадки\n\n"
+            "💬 *ИИ-советник* — отвечаю на любые вопросы по тендерному бизнесу как опытный ментор\n\n"
+            "📊 *Профиль и статистика* — веду твою историю, показываю прогресс и статус участника\n\n"
+            "🏆 *Рейтинг участников* — топ пользователей по количеству выигранных тендеров\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 *Для кого я создан?*\n"
+            "Для тех, кто хочет начать зарабатывать на государственных закупках — даже без опыта и стартового капитала.\n\n"
+            "Давай начнём! Сначала заполним короткий профиль 👇"
+        )
+        await update.message.reply_text(intro_text, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
+        user_state[user_id] = "q1"
         country_keyboard = ReplyKeyboardMarkup([["🇷🇺 Россия"]], resize_keyboard=True, one_time_keyboard=True)
-        await update.message.reply_text("В какой стране ты планируешь работать?", reply_markup=country_keyboard)
+        await update.message.reply_text("🌍 В какой стране ты планируешь работать?", reply_markup=country_keyboard)
         return
 
     state = user_state.get(user_id)

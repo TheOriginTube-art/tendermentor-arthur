@@ -31,6 +31,26 @@ user_histories = {}
 user_state = {}
 user_profile = {}
 
+def format_profile(user_id):
+    profile = user_profile.get(user_id)
+
+    if not profile:
+        return "Профиль пуст. Нажми 🚀 Начать"
+
+    return f"""
+📊 ТВОЙ ПРОФИЛЬ
+
+🌍 Страна: {profile.get('country', '-')}
+
+💰 Бюджет: {profile.get('budget', '-')}
+
+🏢 Компания: {profile.get('company', '-')}
+
+🧠 Опыт: {profile.get('experience', '-')}
+
+🎯 Статус: Новичок в тендерах
+"""
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я TenderStart AI\n\n"

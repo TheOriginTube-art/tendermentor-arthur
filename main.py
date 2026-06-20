@@ -69,8 +69,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "📊 мой профиль":
-        profile = user_profile.get(user_id, {})
-        await update.message.reply_text(f"Твой профиль:\n{profile}")
+        await update.message.reply_text(format_profile(user_id), reply_markup=main_menu())
         return
 
     if text == "🎯 найти тендер":

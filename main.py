@@ -763,7 +763,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "stage2":
-        await query.answer("🚧 Этап №2 в разработке", show_alert=True)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📌 Этап №2", callback_data="stage2_open")]
+        ])
+        await query.message.edit_reply_markup(reply_markup=kb)
 
     elif data in ("tender_back", "tender_choose_again"):
         await query.message.reply_text(

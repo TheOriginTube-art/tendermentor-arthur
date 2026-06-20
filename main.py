@@ -892,7 +892,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not active:
             await update.message.reply_text(
                 "📁 У тебя пока нет сохранённых тендеров.\n\n"
-                "Найди тендер, изучи его и нажми *«🚀 Реализовать»* — он сохранится здесь на 24 часа.",
+                "Найди тендер, изучи его и нажми *«🚀 Реализовать»* — он сохранится здесь на 72 часа.",
                 parse_mode="Markdown",
                 reply_markup=main_menu(user_id)
             )
@@ -1244,7 +1244,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             saved_msg = (
                 f"🏆 *ТЕНДЕР СОХРАНЁН*\n\n"
                 f"_{title}_\n\n"
-                f"💾 Тендер добавлен в *«Мои тендеры»* и будет доступен *24 часа*.\n"
+                f"💾 Тендер добавлен в *«Мои тендеры»* и будет доступен *72 часа*.\n"
                 f"Ты найдёшь его в главном меню → 📁 Мои тендеры.\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🚀 *ЧТО ДАЛЬШЕ?*\n\n"

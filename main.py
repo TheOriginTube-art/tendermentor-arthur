@@ -94,7 +94,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🎯 найти тендер":
-        await update.message.reply_text("Я скоро буду подбирать тендеры 👍")
+        profile = user_profile.get(user_id, {})
+        await update.message.reply_text(get_tender_advice(profile), reply_markup=main_menu())
         return
 
     if text == "📄 анализ тендера":

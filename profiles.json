@@ -10,5 +10,18 @@
     "familiarized": true,
     "stages_completed": true,
     "city": "Благовещенск"
+  },
+  "1483191190": {
+    "registered_at": "2026-06-21T07:19:29.208883+00:00",
+    "tg_name": "Влад",
+    "profile_code": "Влад#1190",
+    "country": "🇷🇺 Россия",
+    "budget": "500 000₽+",
+    "company": "🏢 ИП",
+    "experience": "✅ Есть опыт",
+    "familiarized": true,
+    "stages_completed": true,
+    "city": "Калуга",
+    "won_count": 1
   }
 }

@@ -1306,8 +1306,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text in ("📖 ознакомиться", "🔁 ознакомиться снова"):
-        confirm_kb = ReplyKeyboardMarkup([["✅ Ознакомлен"]], resize_keyboard=True, one_time_keyboard=True)
-        await update.message.reply_text(TENDER_INFO, reply_markup=confirm_kb)
+        already = user_profile.get(user_id, {}).get("familiarized", False)
+        if already:
+            await update.message.reply_text(TENDER_INFO, reply_markup=main_menu(user_id))
+        else:
+            confirm_kb = ReplyKeyboardMarkup([["✅ Ознакомлен"]], resize_keyboard=True, one_time_keyboard=True)
+            await update.message.reply_text(TENDER_INFO, reply_markup=confirm_kb)
         return
 
     if text == "✅ ознакомлен":

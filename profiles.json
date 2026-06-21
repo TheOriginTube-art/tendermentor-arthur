@@ -32,6 +32,9 @@
     "budget": "500 000₽+",
     "company": "🏢 ИП",
     "experience": "❌ Нет опыта",
-    "familiarized": true
+    "familiarized": true,
+    "stages_completed": true,
+    "city": "Армавир",
+    "won_count": 1
   }
 }

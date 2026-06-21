@@ -23,5 +23,15 @@
     "stages_completed": true,
     "city": "Калуга",
     "won_count": 1
+  },
+  "8606376984": {
+    "registered_at": "2026-06-21T09:04:05.187519+00:00",
+    "tg_name": "Format_2022",
+    "profile_code": "Format_2022#6984",
+    "country": "🇷🇺 Россия",
+    "budget": "500 000₽+",
+    "company": "🏢 ИП",
+    "experience": "❌ Нет опыта",
+    "familiarized": true
   }
 }
